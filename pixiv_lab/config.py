@@ -53,8 +53,6 @@ def env_config(batch: dict) -> dict:
     )
 
     missing = [n for n, v in [("PIXIV_REFRESH_TOKEN", refresh), ("target_chat_id (batch)", chat)] if not v]
-    if not bot and not dry_run:
-        missing.append("TELEGRAM_BOT_TOKEN")
     if missing:
         raise SystemExit("Missing required: " + ", ".join(missing))
 

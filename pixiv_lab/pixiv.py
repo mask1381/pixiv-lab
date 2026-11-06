@@ -197,7 +197,7 @@ def adapt_detail_pages(illust: dict) -> list[dict]:
                 "id": f"{illust['id']}_p{idx}",
                 "illust_id": illust["id"],
                 "title": illust.get("title"),
-                "image_url_hq": urls.get("original") or urls.get("large"),
+                "image_url_hq": urls.get("original") or illust.get("meta_single_page", {}).get("original_image_url") or urls.get("large"),
                 "image_url_std": urls.get("medium"),
                 "character": "unknown",
                 "generalTags": tags,

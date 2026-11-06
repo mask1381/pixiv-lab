@@ -66,7 +66,7 @@ def caption_format(method: str, nsfw: bool, n: int, rules: dict) -> str:
         if mode == "all_to_channel":
             return "album"            # complete NSFW album in the channel
         if mode == "single_to_channel":
-            return "nsfw_single"      # one page to channel, rest to bot
+            return "bot"      # one page to channel, rest to bot
         return "bot"                  # cover_only (default)
     if n == 1 and get_rule(rules, "hd_link", default=True):
         return "hd"
