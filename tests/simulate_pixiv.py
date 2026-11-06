@@ -464,6 +464,17 @@ def t_drop_last():
     albs = [c for c in CALLS if c["what"] == "schedule_album"]
     check("drop_last: 3-page becomes 2-page album", len(albs) == 1 and len(albs[0]["args"][1]) == 2)
 
+def t_caption_cfg_contract():
+    print("[0] batch caption cfg contract")
+    from pixiv_lab.caption import set_caption_cfg, set_cta, set_footer, build_caption
+    set_footer("")
+    set_cta({})
+    set_caption_cfg({"layout": ["title", "teaser", "hashtags", "footer"], "title_font": "bold"})
+    out = build_caption({"title": "Hi", "teaser": "t"}, "album", 1, ["#X"])
+    check("set_caption_cfg imported", True)
+    check("title is bold", "<b>Hi</b>" in out, out[:80])
+
+
 if __name__ == "__main__":
     for fn in sorted((v for v in list(globals().values()) if callable(v) and v.__name__.startswith("t_")), key=lambda f: f.__name__):
         fn()

@@ -96,10 +96,31 @@ TEASER = "teaser"
 CTA = "cta"
 TAGS = "hashtags"
 FOOTER = "footer"
-VALID_LAYOUT = {TITLE, TEASER, CTA, TAGS, FOOTER}
+PREFIX = "prefix"
+EXTRA = "extra"
+VALID_LAYOUT = {TITLE, TEASER, CTA, TAGS, FOOTER, PREFIX, EXTRA}
 DEFAULT_LAYOUT = (TITLE, TEASER, CTA, TAGS, FOOTER)
 
 _LAYOUT = DEFAULT_LAYOUT
+_EXTRAS: dict = {}
+_TPL: dict = {}
+_TITLE_FONT = "bold"
+
+
+def set_caption_cfg(cfg) -> None:
+    """قرارداد بات: چیدمان/قالب/فونت تیتر از batch می‌آید. ماشین هویت ندارد."""
+    global _EXTRAS, _TPL, _TITLE_FONT
+    cfg = cfg if isinstance(cfg, dict) else {}
+    if cfg.get("layout"):
+        set_layout(cfg.get("layout"))
+    _EXTRAS = dict(cfg.get("extras") or {}) if isinstance(cfg.get("extras"), dict) else {}
+    _TPL = dict(cfg.get("templates") or {}) if isinstance(cfg.get("templates"), dict) else {}
+    font = str(cfg.get("title_font") or "").strip()
+    if font:
+        _TITLE_FONT = font
+    extra_cta = cfg.get("cta") if isinstance(cfg.get("cta"), dict) else None
+    if extra_cta:
+        set_cta(extra_cta)
 
 
 def set_layout(layout) -> None:
@@ -119,14 +140,38 @@ def set_layout(layout) -> None:
 
 
 def _block_text(b: str, parts: dict, cta: str, tags: list[str], footer: str) -> str:
+    if b == PREFIX:
+        return str(_EXTRAS.get("prefix") or "")
     if b == TITLE:
-        return f"<b>{_esc(parts.get('title'))}</b>"
+        t = parts.get("title") or ""
+        if not t:
+            return ""
+        tpl = _TPL.get("title") or ""
+        if "{title}" in tpl:
+            return tpl.replace("{title}", _esc(t))
+        if _TITLE_FONT == "as_is":
+            return _esc(t)
+        if _TITLE_FONT in ("italic",):
+            return f"<i>{_esc(t)}</i>"
+        return f"<b>{_esc(t)}</b>"
     if b == TEASER:
-        return f"<i>{_esc(parts['teaser'])}</i>" if parts.get("teaser") else ""
+        t = parts.get("teaser") or ""
+        if not t:
+            return ""
+        tpl = _TPL.get("teaser") or ""
+        if "{teaser}" in tpl:
+            return tpl.replace("{teaser}", _esc(t))
+        return f"<i>{_esc(t)}</i>"
     if b == CTA:
         return f"<blockquote>{cta}</blockquote>" if cta else ""
     if b == TAGS:
-        return " ".join(tags) if tags else ""
+        joined = " ".join(tags) if tags else ""
+        tpl = _TPL.get("hashtags") or ""
+        if joined and "{hashtags}" in tpl:
+            return tpl.replace("{hashtags}", joined)
+        return joined
+    if b == EXTRA:
+        return str(_EXTRAS.get("extra") or "")
     if b == FOOTER:
         return footer or ""
     return ""
