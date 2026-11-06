@@ -15,6 +15,7 @@ DEFAULT_RULES: dict[str, Any] = {
     "pages": {"drop_last": False, "merge_singles": None},
     "schedule": {"preferred_slots": None},
     "spoiler": False,
+    "ugoira": "video",          # video | skip — گیف/انیمیشن هنرمند
     "hashtags": {
         "max_category": 4,
         "format_tag": True,

@@ -224,6 +224,13 @@ def prepare_post(
     else:
         is_ugoira = False
 
+    if is_ugoira and get_rule(rules, "ugoira", default="video") == "skip":
+        log.info("%s: ugoira %s skipped by artist rule", kind, item_id)
+        if not dry:
+            for mid in ids:
+                _mark_skipped(posted, runtime, mid, "ugoira skip")
+        return None
+
     hit = next((h for h in (blocked_reason(p) for p in pages) if h), None)
     if hit:
         log.warning("%s: %s skipped, blocked content (%s)", kind, item_id, hit)
