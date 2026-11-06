@@ -593,6 +593,8 @@ def _overrides(ov: dict) -> dict:
         out["document"] = bool(ov["document"])
     if "hd_link" in ov:
         out["hd_link"] = bool(ov["hd_link"])
+    if "spoiler" in ov:
+        out["spoiler"] = bool(ov["spoiler"])
     return out
 
 
