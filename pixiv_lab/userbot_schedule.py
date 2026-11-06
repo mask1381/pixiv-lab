@@ -25,7 +25,14 @@ def _utc(when: datetime) -> datetime:
 
 def _ids(res) -> list[int]:
     items = res if isinstance(res, (list, tuple)) else [res]
-    return [int(m.id) for m in items if m is not None and getattr(m, "id", None) is not None]
+    found = [int(m.id) for m in items if m is not None and getattr(m, "id", None) is not None]
+    if found:
+        return found
+    for u in getattr(res, "updates", None) or []:
+        msg = getattr(u, "message", None)
+        if msg is not None and getattr(msg, "id", None) is not None:
+            found.append(int(msg.id))
+    return found
 
 
 @asynccontextmanager
@@ -175,13 +182,47 @@ def schedule_video(
 # ---- text ----
 
 async def _text(chat_id: str, text: str, when: datetime | None) -> list[int]:
+    """Channel text with no webpage card (t.me/channel and bot links stay as links)."""
+    from inspect import signature
+
+    from telethon.extensions import html as tlhtml
+    from telethon.tl.functions.messages import SendMessageRequest
+
+    plain, entities = tlhtml.parse(text or "")
+    when_utc = _utc(when) if when else None
     async with _session(chat_id) as (client, entity):
+        kw = {
+            "peer": entity,
+            "message": plain,
+            "entities": entities or None,
+            "schedule_date": when_utc,
+        }
+        params = signature(SendMessageRequest).parameters
+        if "no_webpage" in params:
+            kw["no_webpage"] = True
+        if "media" in params:
+            try:
+                from telethon.tl.types import InputMediaWebPage
+                kw["media"] = InputMediaWebPage(url="", force_large_media=False, optional=True)
+            except Exception:
+                pass
+        try:
+            res = await client(SendMessageRequest(**kw))
+            ids = _ids(res)
+            if ids:
+                return ids
+        except Exception:
+            pass
         res = await client.send_message(
-            entity, text, parse_mode="html", link_preview=False, schedule=_utc(when) if when else None
+            entity,
+            plain,
+            formatting_entities=entities or None,
+            link_preview=False,
+            schedule=when_utc,
         )
         return _ids(res)
 
 
 def schedule_text(chat_id: str, text: str, when: datetime | None) -> list[int]:
-    """Text-only post (used when an NSFW post has no SFW cover at all)."""
+    """Text-only post: caption + storage link, never a Telegram link preview."""
     return _retry(lambda: _text(chat_id, text, when), "Scheduling text")
