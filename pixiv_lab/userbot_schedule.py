@@ -123,7 +123,10 @@ async def _album(chat_id: str, blobs: list[bytes], caption: str, when: datetime 
                         entity, files, caption=caps, parse_mode="html", schedule=at, spoiler=bool(spoiler)
                     )
                 ids.extend(_ids(res))
-        except Exception:
+        except Exception as exc:
+            if type(exc).__name__ == "TypeNotFoundError":
+                log.warning("TypeNotFoundError after schedule (schema lag); keeping %s messages", ids)
+                return ids or [0]
             await _delete(client, entity, ids)
             raise
         log.info("Album %s (%s messages)", when.strftime("%m-%d %H:%M") if when else "sent now", len(ids))

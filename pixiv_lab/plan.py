@@ -30,7 +30,7 @@ from pixiv_lab.state import load_posted, load_runtime
 from pixiv_lab.tags import load_adult_set, load_content_map, load_drop_set
 from pixiv_lab.telegram import split_balanced
 from pixiv_lab.ugoira import convert_ugoira_to_video
-from pixiv_lab.userbot_schedule import list_scheduled, schedule_album, schedule_text, schedule_video
+from pixiv_lab.userbot_schedule import list_scheduled, schedule_album, schedule_video
 from pixiv_lab.userbot_zip import (
     prepare_zip,
     send_gallery_to_storage,
@@ -382,8 +382,8 @@ def deliver_post(prep, when, client, chat_id: str, cover_prep=None) -> int:
     if get_rule(rules, "nsfw_cover", default="own") == "own" and not prep.chosen.get("_merge"):
         blob = _cover_blob(client, _own_cover(prep), rules)
         return len(schedule_album(chat_id, [blob], caption, when, spoiler=spoiler)) or 1
-    log.warning("No SFW cover for %s: sending a text post", prep.item_id)
-    return len(schedule_text(chat_id, caption, when)) or 1
+    log.warning("No SFW cover for %s: not sending a text-only channel post", prep.item_id)
+    raise RuntimeError(f"no SFW cover for {prep.item_id}; text-only post blocked")
 
 
 class Planner:
@@ -611,8 +611,6 @@ def _overrides(ov: dict) -> dict:
         out["document"] = bool(ov["document"])
     if "hd_link" in ov:
         out["hd_link"] = bool(ov["hd_link"])
-    if "spoiler" in ov:
-        out["spoiler"] = bool(ov["spoiler"])
     return out
 
 

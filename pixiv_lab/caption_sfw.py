@@ -41,7 +41,7 @@ TITLES = {
     "Legwear": ["Long Legs Energy 🖤", "Stocking Style ✨", "Leg Day Vibes 😳", "Sheer And Pretty 🎀", "Classy Legs 🖤💕"],
     "Duo": ["Two Is Better 💕", "Double Trouble 😍😍", "Best Friends Vibe 💕✨", "Partners In Crime 😏💕", "Two Cuties 💖💖"],
     "VTuber": ["Streaming Cutie 🎥💕", "Live And Lovely ✨", "Chat Says Hi 💬😊", "Virtual Charm 🎥✨", "On Air Cutie 🎥💖"],
-    "General": ["So Cute 😍", "Beautiful Girl 💕", "My Favorite 💖", "Just Perfect ✨😍", "Adorable 🥰"],
+    "General": ["So Cute 😍", "Beautiful Girl 💕", "Pretty Waifu ✨", "My Favorite 💖", "Just Perfect ✨😍", "Adorable 🥰"],
 }
 
 TEASERS = {
@@ -72,10 +72,10 @@ TEASER_ONE_CHAR = [
     lambda c: f"Today's pick: {c} ✨💖",
 ]
 TEASER_MANY_CHARS = [
-    lambda n: f"{n} looks in one drop ✨",
+    lambda n: f"{n} lovely waifus, one drop ✨",
     lambda n: f"{n} cuties, pick your favorite 💕",
-    lambda n: f"{n} in one gallery 😍",
-    lambda n: f"{n} {_NOUN_PLURAL} for your day 💖",
+    lambda n: f"{n} girls in one gallery 😍",
+    lambda n: f"{n} pretty waifus for your day 💖",
     lambda n: f"{n} looks, all lovely ✨😊",
 ]
 TEASER_FRANCHISE = [
@@ -85,18 +85,6 @@ TEASER_FRANCHISE = [
     lambda f: f"Save this {f} art 💖",
 ]
 RARITY = [c["name"] for c in CLUSTERS]
-_NOUN = "character"
-_NOUN_PLURAL = "characters"
-
-
-def set_nouns(singular: str | None, plural: str | None) -> None:
-    global _NOUN, _NOUN_PLURAL
-    if singular:
-        _NOUN = singular
-    if plural:
-        _NOUN_PLURAL = plural
-    if not singular and not plural:
-        _NOUN, _NOUN_PLURAL = "character", "characters"
 
 
 def _norm_tag(t) -> str:
@@ -209,18 +197,30 @@ def sfw_parts(items: list[dict], runtime: dict, info: dict | None = None) -> tup
         characters = list(dict.fromkeys(n for n in (person_name(c) for c in info.get("characters") or []) if n))
         franchise = franchise_short(info.get("franchise"))
 
+    def flavor(text: str) -> str:
+        from pixiv_lab.caption import voice_nouns
+        noun, plural = voice_nouns()
+        if noun.lower() == "waifu":
+            return text
+        return (
+            text.replace("waifus", plural)
+            .replace("Waifus", plural[:1].upper() + plural[1:])
+            .replace("waifu", noun)
+            .replace("Waifu", noun[:1].upper() + noun[1:])
+        )
+
     # the artist's own Latin title (set by the pipeline) beats a random template
     art_title = next((it.get("art_title") for it in items if it.get("art_title")), None)
     if art_title:
-        title = f"{art_title} {emoji_tail(random.choice(TITLES[key]))}"
+        title = flavor(f"{art_title} {emoji_tail(random.choice(TITLES[key]))}")
     else:
-        title = _pick_fresh(TITLES[key], f"t:{key}", memory)
+        title = flavor(_pick_fresh(TITLES[key], f"t:{key}", memory))
     if len(characters) == 1:
-        teaser = _pick_fresh([f(characters[0]) for f in TEASER_ONE_CHAR], "c1", memory)
+        teaser = flavor(_pick_fresh([f(characters[0]) for f in TEASER_ONE_CHAR], "c1", memory))
     elif len(characters) > 1:
-        teaser = _pick_fresh([f(len(characters)) for f in TEASER_MANY_CHARS], "cN", memory)
+        teaser = flavor(_pick_fresh([f(len(characters)) for f in TEASER_MANY_CHARS], "cN", memory))
     elif franchise:
-        teaser = _pick_fresh([f(franchise) for f in TEASER_FRANCHISE], "fr", memory)
+        teaser = flavor(_pick_fresh([f(franchise) for f in TEASER_FRANCHISE], "fr", memory))
     else:
-        teaser = _pick_fresh(TEASERS.get(key) or TEASERS["General"], f"s:{key}", memory)
+        teaser = flavor(_pick_fresh(TEASERS.get(key) or TEASERS["General"], f"s:{key}", memory))
     return title, teaser
