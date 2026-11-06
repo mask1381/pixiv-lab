@@ -30,8 +30,9 @@ from pixiv_lab.state import load_posted, load_runtime
 from pixiv_lab.tags import load_adult_set, load_content_map, load_drop_set
 from pixiv_lab.telegram import split_balanced
 from pixiv_lab.ugoira import convert_ugoira_to_video
-from pixiv_lab.userbot_schedule import list_scheduled, schedule_album, schedule_video
+from pixiv_lab.userbot_schedule import list_scheduled, schedule_album, schedule_text, schedule_video
 from pixiv_lab.userbot_zip import (
+    discard_storage,
     prepare_zip,
     send_gallery_to_storage,
     send_hd_to_storage,
@@ -318,8 +319,12 @@ def deliver_post(prep, when, client, chat_id: str, cover_prep=None) -> int:
                     f"or zip.pages selected nothing); post NOT sent to the channel"
                 )
             blob = _cover_blob(client, cover, rules)
-            link = send_zip_to_storage(zip_path).link
-            ids = schedule_album(chat_id, [blob], prep.make_caption("zip", link), when, spoiler=spoiler)
+            uploaded = send_zip_to_storage(zip_path)
+            try:
+                ids = schedule_album(chat_id, [blob], prep.make_caption("zip", uploaded.link), when, spoiler=spoiler)
+            except Exception:
+                discard_storage([uploaded])
+                raise
         return len(ids) or 1
 
     if prep.method == "ugoira":
@@ -360,30 +365,44 @@ def deliver_post(prep, when, client, chat_id: str, cover_prep=None) -> int:
         blobs = _blobs(client, pages)
         return len(schedule_album(chat_id, blobs, prep.make_caption("album"), when, spoiler=spoiler)) or len(blobs)
 
+    uploads: list = []
     _need_storage()
-    with tempfile.TemporaryDirectory() as tmp:
-        links = send_gallery_to_storage(client, pages, Path(tmp), prep.zip_name, rules=rules)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            links = send_gallery_to_storage(
+                client, pages, Path(tmp), prep.zip_name, rules=rules, uploads_out=uploads
+            )
 
-    if mode == "single_to_channel":
-        single = int(get_rule(rules, "law", "nsfw", "single_in_channel", default=1) or 1)
-        single = max(1, min(single, n))
-        # The channel shows only the first `single` pages as photos; the deep link must
-        # point at the FULL album in bot storage (`links`, uploaded above), not a re-upload
-        # of the preview subset — otherwise the rest of the album is orphaned/unreachable.
-        return len(
-            schedule_album(chat_id, _blobs(client, pages[:single]), prep.make_caption("bot", links), when, spoiler=spoiler)
-        ) or single
+        if mode == "single_to_channel":
+            single = int(get_rule(rules, "law", "nsfw", "single_in_channel", default=1) or 1)
+            single = max(1, min(single, n))
+            # The channel shows only the first `single` pages as photos; the deep link must
+            # point at the FULL album in bot storage (`links`, uploaded above), not a re-upload
+            # of the preview subset — otherwise the rest of the album is orphaned/unreachable.
+            return len(
+                schedule_album(chat_id, _blobs(client, pages[:single]), prep.make_caption("bot", links), when, spoiler=spoiler)
+            ) or single
 
-    if cover_prep is not None:
-        caption = prep.make_caption("cover", links, cover=cover_prep)
-        blobs = _blobs(client, cover_prep.enriched[:CHANNEL_MAX])
-        return len(schedule_album(chat_id, blobs, caption, when, spoiler=spoiler)) or len(blobs)
-    caption = prep.make_caption("bot", links)
-    if get_rule(rules, "nsfw_cover", default="own") == "own" and not prep.chosen.get("_merge"):
-        blob = _cover_blob(client, _own_cover(prep), rules)
-        return len(schedule_album(chat_id, [blob], caption, when, spoiler=spoiler)) or 1
-    log.warning("No SFW cover for %s: not sending a text-only channel post", prep.item_id)
-    raise RuntimeError(f"no SFW cover for {prep.item_id}; text-only post blocked")
+        if cover_prep is not None:
+            caption = prep.make_caption("cover", links, cover=cover_prep)
+            blobs = _blobs(client, cover_prep.enriched[:CHANNEL_MAX])
+            return len(schedule_album(chat_id, blobs, caption, when, spoiler=spoiler)) or len(blobs)
+
+        # Storage already has the album + deep link. The channel post must follow:
+        # SFW cover if we had one, else this post's own page, else text with the link.
+        # Never skip after a successful storage upload (that left orphans in the vault).
+        caption = prep.make_caption("bot", links)
+        if pages:
+            try:
+                blob = _cover_blob(client, _own_cover(prep), rules)
+                return len(schedule_album(chat_id, [blob], caption, when, spoiler=spoiler)) or 1
+            except Exception as exc:
+                log.warning("Own cover failed for %s; sending the link as text: %s", prep.item_id, exc)
+        ids = schedule_text(chat_id, caption, when)
+        return len(ids) or 1
+    except Exception:
+        discard_storage(uploads)
+        raise
 
 
 class Planner:
@@ -429,7 +448,11 @@ class Planner:
             ]
             for c in sorted(cands, key=_score, reverse=True)[:3]:
                 try:
-                    p = self._prep(c, False, pool["rules"])
+                    p = prepare_post(
+                        self.client, self.token, c, self.dict_rows, self.content_map, self.adult_set,
+                        self.drop_set, self.posted, self.runtime, pool["rules"], False, self.dry,
+                        record=False,
+                    )
                 except Exception as exc:
                     log.warning("SFW cover %s failed: %s", c["id"], exc)
                     self.rejected.add(c["id"])

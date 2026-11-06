@@ -160,7 +160,7 @@ def _install(cfg=None):
     plan_mod.convert_ugoira_to_video = lambda c, t, iid, wdir, f=None: (f"{iid}.mp4", b"fake-video")
     for mod in (usched_mod, plan_mod):
         mod.schedule_video = _rec("schedule_video")
-    def send_gallery_to_storage(client, pages, workdir, base_name, rules=None):
+    def send_gallery_to_storage(client, pages, workdir, base_name, rules=None, uploads_out=None):
         # positional order mirrors real call: (client, pages, workdir, base_name, rules)
         CALLS.append({"what": "send_gallery_to_storage", "args": (client, pages, workdir, base_name, rules), "kwargs": {}})
         # real shape: list[str] deep links, one per uploaded part (<= GALLERY_PART_SIZE pages each)
@@ -178,6 +178,7 @@ def _install(cfg=None):
     for mod in (uzip_mod, plan_mod):
         mod.userbot_configured = lambda: True
         mod.storage_configured = lambda: True
+        mod.discard_storage = lambda uploads: None
     for mod in (plan_mod,):
         mod.prepare_zip = lambda client, pages, iid, workdir, rules=None, name_hint=None: (
             workdir / f"{name_hint or 'zip'}_{iid}.zip"
@@ -463,6 +464,20 @@ def t_drop_last():
     plan_mod.run_plan(cfg, dry=False)
     albs = [c for c in CALLS if c["what"] == "schedule_album"]
     check("drop_last: 3-page becomes 2-page album", len(albs) == 1 and len(albs[0]["args"][1]) == 2)
+
+def t_nsfw_sfw_cover_missing_still_posts():
+    print("[18] NSFW with nsfw_cover=sfw and no SFW still posts after storage")
+    reset()
+    _install()
+    DETAIL_STORE["999:773"] = pages(4, illust(id=773, user={"id": 999, "name": "A", "account": "a"}, **NSFW))
+    cfg = _make_cfg(_batch(artists=[{"user_id": "999", "name": "A", "rules": {"nsfw_cover": "sfw"}}]))
+    plan_mod.run_plan(cfg, dry=False)
+    gals = [c for c in CALLS if c["what"] == "send_gallery_to_storage"]
+    albs = [c for c in CALLS if c["what"] == "schedule_album"]
+    texts = [c for c in CALLS if c["what"] == "schedule_text"]
+    check("album reached storage", len(gals) == 1)
+    check("channel still got the post", len(albs) + len(texts) >= 1, str([(c["what"]) for c in CALLS]))
+
 
 def t_caption_cfg_contract():
     print("[0] batch caption cfg contract")

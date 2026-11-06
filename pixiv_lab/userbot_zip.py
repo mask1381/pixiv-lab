@@ -471,12 +471,41 @@ def _part_files(client: httpx.Client, part: list[dict], workdir: Path, prefix: s
     return paths
 
 
+def discard_storage(uploads) -> None:
+    """Best-effort delete of storage messages after the channel post failed."""
+    ids = []
+    for u in uploads or []:
+        ids.extend(u.all_ids() if hasattr(u, "all_ids") else [])
+    if not ids:
+        return
+    async def _wipe():
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
+        client = TelegramClient(
+            StringSession(os.environ["TG_SESSION_STRING"].strip()),
+            int(os.environ["TG_API_ID"].strip()),
+            os.environ["TG_API_HASH"].strip(),
+        )
+        await client.connect()
+        try:
+            entity = await _resolve_entity(client, int(storage_chat_id()))
+            await client.delete_messages(entity, ids)
+            log.info("Rolled back storage uploads %s", ids)
+        finally:
+            await client.disconnect()
+    try:
+        asyncio.run(_wipe())
+    except Exception as exc:
+        log.error("ORPHAN storage messages %s could not be deleted: %s", ids, exc)
+
+
 def send_gallery_to_storage(
     client: httpx.Client,
     pages: list[dict],
     workdir: Path,
     base_name: str,
     rules: dict | None = None,
+    uploads_out: list | None = None,
 ) -> list[str]:
     """Upload pages to the storage chat as media groups (max 10, balanced). One deep link per part.
     Files are originals-as-documents only when the artist has document=true."""
@@ -504,7 +533,10 @@ def send_gallery_to_storage(
                     time.sleep(5 * attempt)
         raise RuntimeError(f"Bulk upload failed after {STORAGE_ATTEMPTS} attempts") from last
 
-    links = [u.link for u in _upload_batch(batches, force_document=force_doc)]
+    result = _upload_batch(batches, force_document=force_doc)
+    if uploads_out is not None:
+        uploads_out.extend(result)
+    links = [u.link for u in result]
     log.info("Storage ready: 1 part")
     return links
 

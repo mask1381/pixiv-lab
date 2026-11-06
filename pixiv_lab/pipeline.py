@@ -65,7 +65,7 @@ def _enrich_album(pages: list[dict], dict_rows: list[dict]) -> list[dict]:
 
 
 def _mark_skipped(posted: dict, runtime: dict, item_id: str, reason: str) -> None:
-    posted[item_id] = "skipped"
+    posted[item_id] = f"skipped:{reason}" if reason else "skipped"
     runtime.get("failures", {}).pop(item_id, None)
     log.warning("Marked %s as skipped: %s", item_id, reason)
 
@@ -197,7 +197,8 @@ class PreparedPost:
 
 
 def prepare_post(
-    client, token, chosen, dict_rows, content_map, adult_set, drop_set, posted, runtime, rules, nsfw: bool, dry: bool = False
+    client, token, chosen, dict_rows, content_map, adult_set, drop_set, posted, runtime, rules, nsfw: bool, dry: bool = False,
+    record: bool = True,
 ) -> PreparedPost | None:
     kind = "NSFW" if nsfw else "SFW"
     item_id = chosen["id"]
@@ -224,9 +225,10 @@ def prepare_post(
     else:
         is_ugoira = False
 
+    persist = record and not dry
     if is_ugoira and get_rule(rules, "ugoira", default="video") == "skip":
         log.info("%s: ugoira %s skipped by artist rule", kind, item_id)
-        if not dry:
+        if persist:
             for mid in ids:
                 _mark_skipped(posted, runtime, mid, "ugoira skip")
         return None
@@ -234,7 +236,7 @@ def prepare_post(
     hit = next((h for h in (blocked_reason(p) for p in pages) if h), None)
     if hit:
         log.warning("%s: %s skipped, blocked content (%s)", kind, item_id, hit)
-        if not dry:
+        if persist:
             for mid in ids:
                 _mark_skipped(posted, runtime, mid, f"blocked content ({hit})")
         return None
@@ -250,7 +252,7 @@ def prepare_post(
         valid = [p for p in pages if has_valid_urls(p)]
         if not valid:
             log.warning("%s: no valid image URLs for %s", kind, item_id)
-            if not dry:
+            if persist:
                 for mid in ids:
                     _mark_skipped(posted, runtime, mid, "no valid image URLs")
             return None
