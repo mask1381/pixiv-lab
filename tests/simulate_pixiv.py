@@ -465,6 +465,23 @@ def t_drop_last():
     albs = [c for c in CALLS if c["what"] == "schedule_album"]
     check("drop_last: 3-page becomes 2-page album", len(albs) == 1 and len(albs[0]["args"][1]) == 2)
 
+def t_nsfw_text_cover():
+    print("[19] NSFW cover=text -> storage + text, no channel photo")
+    reset()
+    _install()
+    DETAIL_STORE["999:774"] = pages(4, illust(id=774, user={"id": 999, "name": "A", "account": "a"}, **NSFW))
+    cfg = _make_cfg(_batch(
+        artists=[{"user_id": "999", "name": "A", "rules": {"nsfw_cover": "text"}}],
+    ))
+    plan_mod.run_plan(cfg, dry=False)
+    gals = [c for c in CALLS if c["what"] == "send_gallery_to_storage"]
+    albs = [c for c in CALLS if c["what"] == "schedule_album"]
+    texts = [c for c in CALLS if c["what"] == "schedule_text"]
+    check("text cover stored album", len(gals) == 1)
+    check("text cover sent text", len(texts) >= 1)
+    check("text cover no channel photo", len(albs) == 0, str([c["what"] for c in CALLS]))
+
+
 def t_nsfw_sfw_cover_missing_still_posts():
     print("[18] NSFW with nsfw_cover=sfw and no SFW still posts after storage")
     reset()

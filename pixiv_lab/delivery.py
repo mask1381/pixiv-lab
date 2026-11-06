@@ -58,6 +58,17 @@ def nsfw_channel_mode(rules: dict) -> str:
     return str(get_rule(_law(rules), "nsfw", "channel_mode", default="cover_only") or "cover_only")
 
 
+def nsfw_cover_kind(rules: dict) -> str:
+    """own | sfw | sfw_or_text | text. Artist sfw/text overrides the channel law."""
+    artist = str(get_rule(rules, "nsfw_cover", default="") or "")
+    law = str(get_rule(_law(rules), "nsfw", "cover", default="") or "")
+    if artist in ("sfw", "text"):
+        return artist
+    if law in ("own", "sfw", "sfw_or_text", "text"):
+        return law
+    return "own"
+
+
 def caption_format(method: str, nsfw: bool, n: int, rules: dict) -> str:
     if method == "zip":
         return "zip"

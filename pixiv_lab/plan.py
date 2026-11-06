@@ -13,7 +13,7 @@ import httpx
 
 from pixiv_lab.blocklist import blocked_reason
 from pixiv_lab.config import CONFIG_DIR
-from pixiv_lab.delivery import BOT_MIN, CHANNEL_MAX, channel_split, nsfw_channel_mode, decide
+from pixiv_lab.delivery import BOT_MIN, CHANNEL_MAX, channel_split, nsfw_channel_mode, nsfw_cover_kind, decide
 from pixiv_lab.enrich import load_dictionary_rows
 from pixiv_lab.images import download_image, edit_image, fit_telegram
 from pixiv_lab.pipeline import (
@@ -388,10 +388,12 @@ def deliver_post(prep, when, client, chat_id: str, cover_prep=None) -> int:
             blobs = _blobs(client, cover_prep.enriched[:CHANNEL_MAX])
             return len(schedule_album(chat_id, blobs, caption, when, spoiler=spoiler)) or len(blobs)
 
-        # Storage already has the album + deep link. The channel post must follow:
-        # SFW cover if we had one, else this post's own page, else text with the link.
-        # Never skip after a successful storage upload (that left orphans in the vault).
         caption = prep.make_caption("bot", links)
+        if nsfw_cover_kind(rules) == "text":
+            ids = schedule_text(chat_id, caption, when)
+            return len(ids) or 1
+        # Storage already has the album + deep link. The channel post must follow:
+        # this post's own page, else text with the link. Never skip after upload.
         if pages:
             try:
                 blob = _cover_blob(client, _own_cover(prep), rules)
@@ -471,8 +473,8 @@ class Planner:
         if prep is None:
             return None
         cover_c = cover_p = None
-        if nsfw and prep.method != "zip" and (
-            cand.get("_merge") or get_rule(rules, "nsfw_cover", default="own") == "sfw"
+        if nsfw and prep.method != "zip" and nsfw_cover_kind(rules) != "text" and (
+            cand.get("_merge") or nsfw_cover_kind(rules) == "sfw"
         ):
             cover_c, cover_p = self._find_cover(uid)
         ids = cand.get("_merge_ids") or [cand["id"]]
@@ -635,7 +637,7 @@ def run_plan(cfg: dict, dry: bool) -> int:
 def _overrides(ov: dict) -> dict:
     """One-time choices from the bot wizard -> rules patch."""
     out: dict = {}
-    if ov.get("nsfw_cover") in ("own", "sfw"):
+    if ov.get("nsfw_cover") in ("own", "sfw", "text"):
         out["nsfw_cover"] = ov["nsfw_cover"]
     if "zip" in ov:
         out["zip"] = {"pages": "all"} if ov["zip"] else None
