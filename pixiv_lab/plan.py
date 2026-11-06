@@ -63,10 +63,28 @@ class Slot:
         return f"{self.when:%m-%d %H:%M} {self.type}"
 
 
-def load_schedule() -> dict:
+def load_schedule(send: dict | None = None) -> dict:
     path = CONFIG_DIR / "schedule.json"
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    return {**DEFAULT_SCHEDULE, **data}
+    conf = {**DEFAULT_SCHEDULE, **data}
+    send = send if isinstance(send, dict) else {}
+    hours = send.get("hours") or send.get("slots") or []
+    times = []
+    if isinstance(hours, list):
+        for item in hours:
+            if isinstance(item, str) and ":" in item:
+                times.append({"time": item, "type": "post"})
+            elif isinstance(item, dict) and item.get("time"):
+                times.append({"time": str(item["time"]), "type": str(item.get("type") or "post")})
+    if times:
+        conf["slots"] = times
+    if send.get("window_h"):
+        conf["window_hours"] = int(send["window_h"])
+    if send.get("lead_min"):
+        conf["lead_minutes"] = int(send["lead_min"])
+    if send.get("timezone"):
+        conf["timezone"] = str(send["timezone"])
+    return conf
 
 
 def upcoming_slots(conf: dict, now: datetime) -> list[Slot]:
@@ -530,7 +548,7 @@ def _data(cfg):
 
 
 def run_plan(cfg: dict, dry: bool) -> int:
-    conf = load_schedule()
+    conf = load_schedule(cfg.get("send"))
     tz = ZoneInfo(conf["timezone"])
     now = datetime.now(tz)
     slots = upcoming_slots(conf, now)
@@ -608,7 +626,7 @@ def run_manual(cfg: dict, batch: dict) -> int:
         when = datetime.fromisoformat(str(batch["when"]).replace("Z", "+00:00"))
         if when.tzinfo is None:
             when = when.replace(tzinfo=timezone.utc)
-    conf = load_schedule()
+    conf = load_schedule(cfg.get("send"))
     runtime, posted = _state(cfg)
     dict_rows, content_map, adult_set, drop_set = _data(cfg)
 

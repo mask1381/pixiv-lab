@@ -68,6 +68,7 @@ def env_config(batch: dict) -> dict:
         "telegram_chat_id": chat,
         "dry_run": dry_run,
         "channel_law": batch.get("channel_law") or {},   # لایحه‌ی کانال از بات
+        "send": batch.get("send") if isinstance(batch.get("send"), dict) else {},
         "artists": list(batch.get("artists") or []),
         "dictionary_path": DATA_DIR / "character_dictionary.csv",
         "content_tags_path": DATA_DIR / "content_tags.csv",
