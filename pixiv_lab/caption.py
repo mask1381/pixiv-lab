@@ -20,13 +20,14 @@ Formats: zip | album | bot | hd | cover
 
 import html
 import logging
+import random
 import re
 
 from pixiv_lab.caption_nsfw import nsfw_parts
-from pixiv_lab.caption_sfw import _pick_fresh, sfw_parts
-from pixiv_lab.names import relation
+from pixiv_lab.caption_sfw import sfw_parts
+from pixiv_lab.names import franchise_short, relation
 from pixiv_lab.rules import get_rule
-from pixiv_lab.tags import FORMAT_TAGS, get_brand_tag
+from pixiv_lab.tags import FORMAT_TAGS, get_brand_tag, hashtag_denied, polish_hashtags
 
 log = logging.getLogger(__name__)
 
@@ -74,16 +75,33 @@ def voice_nouns() -> tuple[str, str]:
     return str(_CTA.get("noun") or "character"), str(_CTA.get("noun_plural") or "characters")
 
 
+COVER_KEYS = ("char", "franchise", "none", "btn_char", "btn_franchise", "btn_none")
+
+
+def _as_cta_lines(value) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        return [ln.strip() for ln in value.replace("\r", "").split("\n") if ln.strip()]
+    return []
+
+
 def set_cta(cta: dict | None) -> None:
-    """Feed this run's CTA labels from the batch. Missing keys keep the defaults."""
+    """Feed this run's CTA labels from the batch. Missing keys keep the defaults.
+
+    Cover hooks/buttons may be a list or a newline-separated string; the machine
+    always picks exactly one line per post.
+    """
     global _CTA, _CTA_COVER
     for key, value in (cta or {}).items():
-        if not isinstance(value, str):
-            continue
         if key in _CTA:
-            _CTA[key] = value
-        elif key in _CTA_COVER:
-            _CTA_COVER[key] = value
+            if isinstance(value, str) and value.strip():
+                _CTA[key] = value
+            continue
+        if key in COVER_KEYS:
+            lines = _as_cta_lines(value)
+            if lines:
+                _CTA_COVER[key] = lines
 
 
 # ---- caption layout (the arrangement comes from the bot, not the machine) ----
@@ -331,7 +349,7 @@ def _with_format_tag(hashtags, fmt: str, rules) -> list[str]:
     if ft and get_rule(rules or {}, "hashtags", "format_tag", default=True) is not False:
         if ft.lower() not in {t.lower() for t in tags}:
             tags.insert(0, ft)
-    return tags
+    return polish_hashtags(tags)
 
 
 def build_caption(
@@ -348,7 +366,91 @@ def build_caption(
     more: True for SFW posts ('N more pics'), False for NSFW ('N pics')."""
     if fmt not in FORMATS:
         raise ValueError(f"Unknown caption format {fmt!r}")
-    return _fit(parts, _cta(fmt, count, page_url, more), _with_format_tag(hashtags, fmt, rules), _footer(rules), info)
+    tags = _with_format_tag(hashtags, fmt, rules)
+    text = _fit(parts, _cta(fmt, count, page_url, more), tags, _footer(rules), info)
+    lint_caption(text, tags, str(parts.get("teaser") or ""))
+    return text
+
+
+def _rot(pool: list[str], slot: str, memory: dict) -> str:
+    mem = list(memory.get(slot) or [])
+    fresh = [x for x in pool if x not in mem] or list(pool)
+    chosen = random.choice(fresh)
+    keep = min(12, max(0, len(pool) - 1))
+    mem.append(chosen)
+    if keep and len(mem) > keep:
+        mem = mem[-keep:]
+    memory[slot] = mem
+    return chosen
+
+
+def _fill_line(ln: str, n: str, f: str) -> str | None:
+    try:
+        out = ln.format(n=n or "", f=f or "")
+    except (KeyError, IndexError, ValueError):
+        return None
+    if "{n}" in out or "{f}" in out:
+        return None
+    return out.replace("\n", " ").strip() or None
+
+
+def pick_cover_line(rel: str, char_name: str | None, franchise_name: str | None, memory: dict, kind: str = "hook") -> str:
+    """One line only. Chain: character → franchise → generic."""
+    prefix = "" if kind == "hook" else "btn_"
+    chain: list[tuple[str, str]] = []
+    if rel == "char" and char_name:
+        chain.append(("char", char_name))
+    if franchise_name:
+        chain.append(("franchise", franchise_name))
+    chain.append(("none", ""))
+    seen: set[str] = set()
+    for key, fill in chain:
+        if key in seen:
+            continue
+        seen.add(key)
+        raw = _as_cta_lines(_CTA_COVER.get(prefix + key))
+        if not raw:
+            hooks, btns = HOOKS[key]
+            raw = list(hooks if kind == "hook" else btns)
+        filled: list[str] = []
+        for ln in raw:
+            if key == "char" and "{f}" in ln:
+                continue
+            if key == "franchise" and "{n}" in ln:
+                continue
+            if key == "none" and ("{n}" in ln or "{f}" in ln):
+                continue
+            n = fill if key == "char" else ""
+            f = fill if key == "franchise" else ""
+            item = _fill_line(ln, n, f)
+            if item:
+                filled.append(item)
+        if filled:
+            return _rot(filled, f"{kind}:{key}", memory)
+    return "More in the bot" if kind == "hook" else "Open gallery"
+
+
+def lint_caption(html: str, tags: list[str] | None = None, hook: str = "") -> list[str]:
+    issues: list[str] = []
+    if "\n" in (hook or "").strip():
+        issues.append("CTA چندخطی")
+    vis = _visible_len(html or "")
+    if vis > CAPTION_LIMIT:
+        issues.append(f"طول {vis}>{CAPTION_LIMIT}")
+    for t in tags or []:
+        if hashtag_denied(t):
+            issues.append(f"هشتگ ممنوع {t}")
+    hits = 0
+    for key in COVER_KEYS:
+        for ln in _as_cta_lines(_CTA_COVER.get(key)):
+            stem = ln.split("{")[0].strip()
+            if len(stem) >= 12 and stem[:16] in (html or ""):
+                hits += 1
+    if hits >= 2:
+        issues.append("چند نسخهٔ CTA در یک کپشن")
+    if issues:
+        log.warning("LINT %s", " · ".join(issues))
+    return issues
 
 
 def build_cover_caption(
@@ -358,17 +460,14 @@ def build_cover_caption(
     Title + hashtags belong to the SFW post (they match the image); the hook and the button
     text follow the relation of the two posts, so they never claim something untrue."""
     rel, name = relation(cover_info, nsfw_info)
-    hooks, btns = HOOKS[rel]
+    cover_info = cover_info or {}
+    char_name = name if rel == "char" else None
+    franchise_name = franchise_short(cover_info.get("franchise")) if cover_info.get("franchise") else None
+    if rel == "franchise" and name:
+        franchise_name = name
     mem = runtime.setdefault("recentCaptions", {})
-    # a channel-supplied label (set_cta) wins; otherwise rotate the generic defaults
-    if _CTA_COVER.get(rel):
-        hook = _CTA_COVER[rel].format(n=name, f=name)
-    else:
-        hook = _pick_fresh([h.format(n=name, f=name) for h in hooks], f"h:{rel}", mem)
-    if _CTA_COVER.get(f"btn_{rel}"):
-        btn = _CTA_COVER[f"btn_{rel}"].format(n=name, f=name)
-    else:
-        btn = _pick_fresh([b.format(n=name, f=name) for b in btns], f"b:{rel}", mem)
+    hook = pick_cover_line(rel, char_name, franchise_name, mem, "hook")
+    btn = pick_cover_line(rel, char_name, franchise_name, mem, "btn")
 
     links = [x for x in ([links] if isinstance(links, str) else list(links or [])) if x]
     if not links:
@@ -380,5 +479,7 @@ def build_cover_caption(
 
     parts = {"title": cover_parts.get("title"), "teaser": hook}
     tags = _with_format_tag(cover_info.get("hashtags"), "bot", rules)
-    log.info("Cover caption: relation=%s name=%r", rel, name)
-    return _fit(parts, cta, tags, _footer(rules), cover_info)
+    log.info("Cover caption: relation=%s name=%r hook=%r", rel, name, hook)
+    text = _fit(parts, cta, tags, _footer(rules), cover_info)
+    lint_caption(text, tags, hook)
+    return text

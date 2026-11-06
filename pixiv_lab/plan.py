@@ -456,10 +456,19 @@ class Planner:
         name = pool["artist"].get("name") or uid
 
         if self.dry:
-            cap = (prep.make_caption("cover", cover=cover_p) if cover_p else prep.make_caption()).splitlines()
+            from pixiv_lab.caption import lint_caption
+            cap_text = prep.make_caption("cover", cover=cover_p) if cover_p else prep.make_caption()
+            issues = lint_caption(cap_text, None, "")
+            preview = " / ".join(cap_text.splitlines()[:4])
             log.info("DRY %s -> %s | %s %s | %s pages | cover=%s | %s", label, ids, "NSFW" if nsfw else "SFW",
-                     prep.method, len(prep.enriched), cover_c["id"] if cover_c else "own/text", " / ".join(cap[:3]))
-            self.rows.append(f"{label} {prep.method} {name} | {ids} | {len(prep.enriched)} pages")
+                     prep.method, len(prep.enriched), cover_c["id"] if cover_c else "own/text", preview)
+            log.info("DRY CAPTION\n%s", cap_text)
+            if issues:
+                log.warning("DRY LINT %s", " · ".join(issues))
+            row = f"{label} {prep.method} {name} | {ids} | {len(prep.enriched)} pages"
+            if issues:
+                row += " | LINT " + " · ".join(issues)
+            self.rows.append(row)
             return True
 
         cost = deliver_post(prep, when, self.client, self.cfg["telegram_chat_id"], cover_p)

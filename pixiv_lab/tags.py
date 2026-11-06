@@ -14,6 +14,7 @@ from pixiv_lab.config import DATA_DIR
 log = logging.getLogger(__name__)
 
 _BRAND_TAG = ""
+_POLICY: dict = {"deny": set(), "allow": set(), "fallback": [], "max": 0, "passthrough_max": 0}
 
 
 def set_brand_tag(tag: str) -> None:
@@ -25,6 +26,73 @@ def set_brand_tag(tag: str) -> None:
 def get_brand_tag() -> str:
     """Current brand tag (fresh read — module-level constants go stale after set_brand_tag)."""
     return _BRAND_TAG
+
+
+def _tag_body(tag: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (tag or "").lstrip("#").lower())
+
+
+def set_hashtag_cfg(cfg: dict | None) -> None:
+    """Channel tag policy from the batch (allow / deny / max / fallback)."""
+    global _POLICY
+    cfg = cfg if isinstance(cfg, dict) else {}
+    def lines(v):
+        if isinstance(v, (list, tuple)):
+            raw = v
+        else:
+            raw = str(v or "").replace(",", " ").split()
+        return [str(x).strip() for x in raw if str(x).strip()]
+    _POLICY = {
+        "deny": {_tag_body(x) for x in lines(cfg.get("deny"))},
+        "allow": {_tag_body(x) for x in lines(cfg.get("allow"))},
+        "fallback": [x if str(x).startswith("#") else f"#{str(x).lstrip('#')}" for x in lines(cfg.get("fallback"))],
+        "max": int(cfg.get("max") or 0),
+        "passthrough_max": int(cfg.get("passthrough_max") or 0),
+    }
+
+
+def hashtag_denied(tag: str) -> bool:
+    body = _tag_body(tag)
+    return bool(body) and body in (_POLICY.get("deny") or set())
+
+
+def polish_hashtags(hashtags: list[str] | None) -> list[str]:
+    """Final pass after format tags (#Gallery / #ZIP) are prepended."""
+    out, seen = [], set()
+    for h in hashtags or []:
+        if not h or hashtag_denied(h):
+            continue
+        key = h.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(h)
+    mx = int(_POLICY.get("max") or 0)
+    if mx and len(out) > mx:
+        out = out[:mx]
+    return out
+
+
+def _apply_channel_policy(hashtags: list[str], core) -> list[str]:
+    deny = _POLICY.get("deny") or set()
+    allow = _POLICY.get("allow") or set()
+    keep = {h.lower() for h in (core or []) if h}
+    core_out, rest = [], []
+    for h in hashtags or []:
+        body = _tag_body(h)
+        if not body or body in deny:
+            continue
+        if allow and body not in allow and h.lower() not in keep:
+            continue
+        if h.lower() in keep:
+            core_out.append(h)
+        else:
+            rest.append(h)
+    out = core_out + rest
+    mx = int(_POLICY.get("max") or 0)
+    if mx and len(out) > mx:
+        out = core_out[:mx] if len(core_out) >= mx else core_out + rest[: mx - len(core_out)]
+    return out
 FORMAT_TAGS = {"zip": "#ZIP", "bot": "#Gallery"}
 JP_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
 PAREN_RE = re.compile(r"^(?P<head>[^()]+?)\s*\((?P<inside>[^()]+)\)\s*$")
@@ -287,6 +355,10 @@ def classify_tags(
     """
     rng = rng or random
     o = {**DEFAULT_OPTS, **(opts or {})}
+    if _POLICY.get("passthrough_max"):
+        o["passthrough_max"] = _POLICY["passthrough_max"]
+    if _POLICY.get("fallback"):
+        o["fallback"] = list(_POLICY["fallback"])
     drop_set = drop_set or set()
     maps, _ = get_maps(dict_rows)
     ns = _ns_order(maps)
@@ -442,6 +514,7 @@ def classify_tags(
     hashtags += category
     if _BRAND_TAG:
         hashtags.append(_BRAND_TAG)
+    hashtags = _apply_channel_policy(hashtags, [franchise_ht, *char_hts])
 
     final = {h.lower() for h in hashtags}
     decisions = []

@@ -31,7 +31,7 @@ def env_config(batch: dict) -> dict:
     """Config for one run: secrets from env, everything else (chat, artists, dry) from the batch."""
     from pixiv_lab.caption import set_cta, set_footer, set_caption_cfg
     from pixiv_lab.pipeline import set_dry_bot_link
-    from pixiv_lab.tags import set_brand_tag
+    from pixiv_lab.tags import set_brand_tag, set_hashtag_cfg
     from pixiv_lab.userbot_zip import set_storage, set_storage_chat
 
     refresh = (os.getenv("PIXIV_REFRESH_TOKEN") or "").strip()
@@ -51,6 +51,12 @@ def env_config(batch: dict) -> dict:
         merged["layout"] = law_cap["layout"]
     set_caption_cfg(merged)
     set_cta(batch.get("cta") or cap.get("cta") or law_cap.get("cta"))
+    tag_pol = {}
+    if isinstance(cap.get("tag_policy"), dict):
+        tag_pol.update(cap["tag_policy"])
+    if isinstance(batch.get("hashtags"), dict):
+        tag_pol.update(batch["hashtags"])
+    set_hashtag_cfg(tag_pol)
     set_dry_bot_link(batch.get("dry_bot_link") or "")
     set_storage(
         str(batch.get("storage_bot_username") or os.getenv("STORAGE_BOT_USERNAME", "") or "").strip(),

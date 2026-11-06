@@ -84,8 +84,37 @@ check("invalid layout ignored", C._LAYOUT == ("title", "cta", "footer"), C._LAYO
 # 6) cta: unknown keys and non-string values are ignored, valid ones applied
 C.set_cta({"bogus": "x", "btn_none": 3, "sep": " | ", "zip_link": "new"})
 check("unknown/non-string cta ignored, valid applied",
-      C._CTA["sep"] == " | " and C._CTA["zip_link"] == "new" and C._CTA["gallery_one"] == "open",
+      C._CTA["sep"] == " | " and C._CTA["zip_link"] == "new" and C._CTA["gallery_one"] == "Get the album",
       {k: C._CTA[k] for k in ("sep", "zip_link", "gallery_one")})
+
+# 6b) multiline cover CTA is split; only one filled line is printed
+C.set_cta({"franchise": "More {f} one 🎮\nMore {f} two ✨\nMore {f} three"})
+hook = C.pick_cover_line("franchise", None, "Honkai", {}, "hook")
+check("multiline CTA splits to a list", len(C._as_cta_lines(C._CTA_COVER["franchise"])) == 3)
+check("one franchise line chosen", "Honkai" in hook and "\n" not in hook, hook)
+mem = {}
+seen = {C.pick_cover_line("franchise", None, "Genshin", mem, "hook") for _ in range(12)}
+check("rotation uses more than one version", len(seen) >= 2, seen)
+
+# 6c) real lists: pick one; char → franchise → generic
+C.set_cta({
+    "char": ["Only {n} line"],
+    "franchise": ["Only {f} line"],
+    "none": ["Only generic line"],
+})
+one = C.pick_cover_line("franchise", None, "Star Rail", {}, "hook")
+check("list CTA picks one franchise line", one == "Only Star Rail line", one)
+fb = C.pick_cover_line("char", None, "Genshin", {}, "hook")
+check("missing character falls back to franchise", fb == "Only Genshin line", fb)
+gen = C.pick_cover_line("none", None, None, {}, "hook")
+check("no names uses generic", gen == "Only generic line", gen)
+
+# 6d) channel tag policy drops denied tags and respects max
+T.set_hashtag_cfg({"deny": ["waifu", "beer", "maid"], "max": 3, "fallback": ["#GachaArt"]})
+polished = T.polish_hashtags(["#HonkaiStarRail", "#Waifu", "#Beer", "#Gallery", "#Maid", "#Art"])
+check("denied hashtags stripped", "#Waifu" not in polished and "#Beer" not in polished and "#Maid" not in polished, polished)
+check("hashtag max applied", len(polished) <= 3, polished)
+T.set_hashtag_cfg({})
 
 # 7) set_brand_tag normalizes and stores (used by classify_tags, verified here)
 T.set_brand_tag("#MyChannel")
