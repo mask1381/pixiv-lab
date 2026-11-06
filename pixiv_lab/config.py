@@ -29,7 +29,7 @@ REQUEST_TIMEOUT = 20.0
 
 def env_config(batch: dict) -> dict:
     """Config for one run: secrets from env, everything else (chat, artists, dry) from the batch."""
-    from pixiv_lab.caption import set_cta, set_footer, set_layout
+    from pixiv_lab.caption import set_cta, set_footer, set_layout, set_strip, set_templates
     from pixiv_lab.pipeline import set_dry_bot_link
     from pixiv_lab.tags import set_brand_tag
     from pixiv_lab.userbot_zip import set_storage, set_storage_chat
@@ -44,8 +44,12 @@ def env_config(batch: dict) -> dict:
     brand_tag = str(batch.get("brand_tag") or "").strip()
     set_footer(footer)
     set_brand_tag(brand_tag)
-    set_layout((batch.get("channel_law") or {}).get("caption", {}).get("layout"))
-    set_cta(batch.get("cta") or (batch.get("channel_law") or {}).get("caption", {}).get("cta"))
+    law_cap = (batch.get("channel_law") or {}).get("caption") or {}
+    cap = batch.get("caption") if isinstance(batch.get("caption"), dict) else {}
+    set_layout(cap.get("layout") or law_cap.get("layout"))
+    set_strip(cap.get("strip") or law_cap.get("strip"))
+    set_templates(cap.get("templates") or law_cap.get("templates"))
+    set_cta(batch.get("cta") or cap.get("cta") or law_cap.get("cta"))
     set_dry_bot_link(batch.get("dry_bot_link") or "")
     set_storage(
         str(batch.get("storage_bot_username") or os.getenv("STORAGE_BOT_USERNAME", "") or "").strip(),

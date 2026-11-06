@@ -34,12 +34,34 @@ FORMATS = ("zip", "album", "bot", "hd", "ugoira")
 CAPTION_LIMIT = 1024
 
 _DYNAMIC_FOOTER = ""
+_STRIP: list[str] = []
+_TPL: dict = {}
 
 
 def set_footer(footer: str) -> None:
     """Set dynamic footer received from batch/bot."""
     global _DYNAMIC_FOOTER
     _DYNAMIC_FOOTER = (footer or "").strip()
+
+
+def set_strip(patterns) -> None:
+    global _STRIP
+    _STRIP = [str(p) for p in (patterns or []) if p]
+
+
+def set_templates(tpl: dict | None) -> None:
+    global _TPL
+    _TPL = dict(tpl or {})
+
+
+def apply_strip(text: str) -> str:
+    out = text or ""
+    for pat in _STRIP:
+        try:
+            out = re.sub(pat, "", out, flags=re.I | re.M)
+        except re.error:
+            out = out.replace(pat, "")
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
 
 
 # ---- call-to-action labels (the "مواد خام" the bot sends) ----
@@ -115,9 +137,21 @@ def set_layout(layout) -> None:
 
 def _block_text(b: str, parts: dict, cta: str, tags: list[str], footer: str) -> str:
     if b == TITLE:
-        return f"<b>{_esc(parts.get('title'))}</b>"
+        val = apply_strip(parts.get("title") or "")
+        if not val:
+            return ""
+        tpl = _TPL.get("title") or "<b>{title}</b>"
+        if "{title}" in tpl or "{value}" in tpl:
+            return tpl.replace("{title}", _esc(val)).replace("{value}", _esc(val))
+        return f"<b>{_esc(val)}</b>"
     if b == TEASER:
-        return f"<i>{_esc(parts['teaser'])}</i>" if parts.get("teaser") else ""
+        val = apply_strip(parts.get("teaser") or "")
+        if not val:
+            return ""
+        tpl = _TPL.get("teaser") or "<i>{teaser}</i>"
+        if "{teaser}" in tpl or "{value}" in tpl:
+            return tpl.replace("{teaser}", _esc(val)).replace("{value}", _esc(val))
+        return f"<i>{_esc(val)}</i>"
     if b == CTA:
         return f"<blockquote>{cta}</blockquote>" if cta else ""
     if b == TAGS:
