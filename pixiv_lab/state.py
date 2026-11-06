@@ -25,6 +25,32 @@ def _atomic_write(path: Path, data) -> None:
         raise
 
 
+def sanitize_runtime(data: dict | None) -> dict:
+    """Drop stale bug-failures (e.g. get_rule NameError) so ack blobs stay small."""
+    out = dict(data or {})
+    out.setdefault("recentlyUsed", [])
+    out.setdefault("recentCaptions", {})
+    cleaned = {}
+    for key, raw in (out.get("failures") or {}).items():
+        if isinstance(raw, dict):
+            reason = str(raw.get("reason") or "")
+            if "get_rule" in reason:
+                continue
+            try:
+                n = int(raw.get("n") or 0)
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                n = int(raw or 0)
+            except (TypeError, ValueError):
+                continue
+        if n > 0:
+            cleaned[str(key)] = n
+    out["failures"] = cleaned
+    return out
+
+
 def load_runtime(path: Path) -> dict:
     data: dict = {}
     if path.exists():
@@ -32,10 +58,7 @@ def load_runtime(path: Path) -> dict:
             data = json.loads(path.read_text(encoding="utf-8")) or {}
         except json.JSONDecodeError:
             data = {}
-    data.setdefault("recentlyUsed", [])
-    data.setdefault("recentCaptions", {})
-    data.setdefault("failures", {})
-    return data
+    return sanitize_runtime(data)
 
 
 def save_runtime(path: Path, data: dict) -> None:
@@ -88,10 +111,7 @@ class State:
 
     def __init__(self, posted: dict, runtime: dict, sink=None, dry: bool = False):
         self._posted = dict(posted or {})
-        self._runtime = dict(runtime or {})
-        self._runtime.setdefault("recentlyUsed", [])
-        self._runtime.setdefault("recentCaptions", {})
-        self._runtime.setdefault("failures", {})
+        self._runtime = sanitize_runtime(runtime)
         self._synced = dict(self._posted)
         self.sink = sink
         self.dry = dry
@@ -127,6 +147,7 @@ class State:
     def flush(self) -> None:
         if self.dry or not self.sink:
             return
+        self._runtime = sanitize_runtime(self._runtime)
         self.save(self._posted, self._runtime)
         self.sink.blob("rt", self._runtime)
         rows = [[tag, *r] for tag, r in self.stats.items()]
