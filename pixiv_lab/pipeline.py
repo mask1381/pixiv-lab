@@ -258,7 +258,9 @@ def prepare_post(
             return None
 
     enriched = _enrich_album(valid, dict_rows)
-    art_title = None if merged else clean_title(valid[0].get("title"), adult_set)
+    art_title = None if merged else clean_title(
+        valid[0].get("title_en") or valid[0].get("title"), adult_set
+    )
     for it in enriched:
         it["art_title"] = art_title
     classified = _classify(enriched, dict_rows, content_map, adult_set, drop_set, rules, nsfw=nsfw)

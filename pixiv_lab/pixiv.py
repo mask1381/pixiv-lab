@@ -114,7 +114,8 @@ def fetch_illust_detail(client: httpx.Client, token: str, illust_id: str | int) 
     illust = r.json().get("illust")
     if not illust:
         raise RuntimeError(f"No illust detail for {illust_id}")
-    return illust
+    from pixiv_lab.translate import enrich_illust
+    return enrich_illust(client, illust)
 
 
 def adapt_list_item(p: dict) -> dict:
@@ -128,9 +129,23 @@ def adapt_list_item(p: dict) -> dict:
                 character_list = candidates
                 break
 
-    all_tags = [t.get("name") for t in (p.get("tags") or []) if t and t.get("name")]
+    raw_tags = p.get("tags") if isinstance(p.get("tags"), list) else []
+    tag_translations = {}
+    pixiv_tags = []
+    all_tags = []
+    for t in raw_tags:
+        if not (t and t.get("name")):
+            continue
+        name = t["name"]
+        en = str(t.get("translated_name") or "").strip()
+        all_tags.append(name)
+        pixiv_tags.append({"name": name, "en": en})
+        if en and en != name:
+            tag_translations[name] = en
     general_tags = [t for t in all_tags if t != "R-18" and t not in character_list]
     franchise_tag = next((t for t in all_tags if t != "R-18" and t not in character_list), None)
+    from pixiv_lab.translate import from_illust
+    loc = p.get("_locale") or from_illust(p)
 
     pages = p.get("meta_pages") if isinstance(p.get("meta_pages"), list) and p.get("meta_pages") else None
     if pages:
@@ -154,8 +169,13 @@ def adapt_list_item(p: dict) -> dict:
         "total_view": p.get("total_view") or 0,
         "character": character_list[0] if character_list else "unknown",
         "characterList": character_list,
+        "title": loc.get("title") or p.get("title"),
+        "title_en": loc.get("title"),
+        "caption_en": loc.get("caption"),
         "generalTags": general_tags,
-        "tagsRaw": all_tags,
+        "tagsRaw": list(dict.fromkeys([*all_tags, *tag_translations.values()])),
+        "tagTranslations": tag_translations,
+        "pixivTags": pixiv_tags,
         "source": "pixiv",
         "byte_size": None,
         "author": (p.get("user") or {}).get("account") or (p.get("user") or {}).get("name") or "unknown",
@@ -169,6 +189,8 @@ def adapt_list_item(p: dict) -> dict:
 
 
 def adapt_detail_pages(illust: dict) -> list[dict]:
+    from pixiv_lab.translate import from_illust
+    loc = illust.get("_locale") or from_illust(illust)
     raw_tags = illust.get("tags") if isinstance(illust.get("tags"), list) else []
     tags = [t["name"] for t in raw_tags if t.get("name")]
     tag_translations = {}
@@ -176,12 +198,19 @@ def adapt_detail_pages(illust: dict) -> list[dict]:
         en = str(t.get("translated_name") or "").strip()
         if t.get("name") and en and en != t["name"]:
             tag_translations[t["name"]] = en
+    for t in loc.get("tags") or []:
+        if t.get("name") and t.get("en") and t["en"] != t["name"]:
+            tag_translations[t["name"]] = t["en"]
     tags_raw = list(dict.fromkeys([*tags, *tag_translations.values()]))
-    pixiv_tags = [
-        {"name": t["name"], "en": str(t.get("translated_name") or "").strip()}
-        for t in raw_tags
-        if t.get("name")
-    ]
+    en_map = {t["name"]: t["en"] for t in loc.get("tags") or [] if t.get("name") and t.get("en")}
+    pixiv_tags = []
+    for t in raw_tags:
+        if not t.get("name"):
+            continue
+        en = str(t.get("translated_name") or en_map.get(t["name"]) or "").strip()
+        pixiv_tags.append({"name": t["name"], "en": en})
+    if not pixiv_tags:
+        pixiv_tags = list(loc.get("tags") or [])
     is_nsfw = illust.get("x_restrict") == 1 or (illust.get("sanity_level") or 0) >= 6
 
     if illust.get("meta_pages"):
@@ -199,7 +228,9 @@ def adapt_detail_pages(illust: dict) -> list[dict]:
             {
                 "id": f"{illust['id']}_p{idx}",
                 "illust_id": illust["id"],
-                "title": illust.get("title"),
+                "title": loc.get("title") or illust.get("title"),
+                "title_en": loc.get("title"),
+                "caption_en": loc.get("caption"),
                 "image_url_hq": single_hq or urls.get("original") or urls.get("large"),
                 "image_url_std": urls.get("medium"),
                 "character": "unknown",

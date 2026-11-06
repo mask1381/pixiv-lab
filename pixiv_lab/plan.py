@@ -696,27 +696,6 @@ def run_manual(cfg: dict, batch: dict) -> int:
     return 0
 
 
-def _raw_caption(detail: dict) -> str:
-    import html as htmlmod
-    import re
-
-    title = str(detail.get("title") or "").strip()
-    cap = str(detail.get("caption") or "")
-    cap = cap.replace("<br />", "\n").replace("<br/>", "\n").replace("<br>", "\n")
-    cap = re.sub(r"<[^>]+>", "", cap)
-    cap = htmlmod.unescape(cap).strip()
-    tags = []
-    for t in detail.get("tags") or []:
-        name = (t or {}).get("name") if isinstance(t, dict) else str(t or "")
-        name = str(name).strip()
-        if name:
-            tags.append("#" + name.replace(" ", "_"))
-    iid = detail.get("id")
-    url = f"https://www.pixiv.net/artworks/{iid}" if iid else ""
-    text = "\n".join(p for p in (title, cap, " ".join(tags), url) if p)
-    return text[:1024]
-
-
 def run_personal(cfg: dict, batch: dict) -> int:
     """Dump one Pixiv illust to Saved Messages: balanced albums, raw caption, no posted map."""
     iid = str(batch.get("illust_id") or "").strip()
@@ -726,7 +705,8 @@ def run_personal(cfg: dict, batch: dict) -> int:
     with httpx.Client(follow_redirects=True, timeout=20.0) as client:
         token = refresh_access_token(client, cfg["pixiv_refresh_token"])
         detail = fetch_illust_detail(client, token, iid)
-        caption = _raw_caption(detail)
+        from pixiv_lab.translate import raw_caption
+        caption = raw_caption(detail)
         if str(detail.get("type") or "") == "ugoira":
             with tempfile.TemporaryDirectory(prefix="pxme_") as tmp:
                 filename, video_bytes = convert_ugoira_to_video(client, token, int(iid), Path(tmp))
