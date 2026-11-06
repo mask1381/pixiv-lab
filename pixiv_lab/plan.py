@@ -24,7 +24,7 @@ from pixiv_lab.pipeline import (
     _save_state,
     prepare_post,
 )
-from pixiv_lab.pixiv import adapt_list_item, fetch_illust_detail, fetch_user_illusts, refresh_access_token
+from pixiv_lab.pixiv import adapt_detail_pages, adapt_list_item, fetch_illust_detail, fetch_user_illusts, refresh_access_token
 from pixiv_lab.rules import deep_merge, get_rule, resolve_rules, select_page, zip_enabled
 from pixiv_lab.state import load_posted, load_runtime
 from pixiv_lab.tags import load_adult_set, load_content_map, load_drop_set
@@ -693,4 +693,59 @@ def run_manual(cfg: dict, batch: dict) -> int:
             log.warning("Manual post %s was skipped (blocked content or no valid images)", iid)
         planner._save()
     log.info("Manual summary: %s", planner.rows or "(nothing)")
+    return 0
+
+
+def _raw_caption(detail: dict) -> str:
+    import html as htmlmod
+    import re
+
+    title = str(detail.get("title") or "").strip()
+    cap = str(detail.get("caption") or "")
+    cap = cap.replace("<br />", "\n").replace("<br/>", "\n").replace("<br>", "\n")
+    cap = re.sub(r"<[^>]+>", "", cap)
+    cap = htmlmod.unescape(cap).strip()
+    tags = []
+    for t in detail.get("tags") or []:
+        name = (t or {}).get("name") if isinstance(t, dict) else str(t or "")
+        name = str(name).strip()
+        if name:
+            tags.append("#" + name.replace(" ", "_"))
+    iid = detail.get("id")
+    url = f"https://www.pixiv.net/artworks/{iid}" if iid else ""
+    text = "\n".join(p for p in (title, cap, " ".join(tags), url) if p)
+    return text[:1024]
+
+
+def run_personal(cfg: dict, batch: dict) -> int:
+    """Dump one Pixiv illust to Saved Messages: balanced albums, raw caption, no posted map."""
+    iid = str(batch.get("illust_id") or "").strip()
+    if not iid.isdigit():
+        raise RuntimeError("personal dump needs a numeric illust_id")
+    chat_id = str(cfg.get("telegram_chat_id") or "me").strip() or "me"
+    with httpx.Client(follow_redirects=True, timeout=20.0) as client:
+        token = refresh_access_token(client, cfg["pixiv_refresh_token"])
+        detail = fetch_illust_detail(client, token, iid)
+        caption = _raw_caption(detail)
+        if str(detail.get("type") or "") == "ugoira":
+            with tempfile.TemporaryDirectory(prefix="pxme_") as tmp:
+                filename, video_bytes = convert_ugoira_to_video(client, token, int(iid), Path(tmp))
+                if cfg.get("dry_run"):
+                    log.info("personal dry ugoira %s caption=%s", iid, caption[:80])
+                    return 0
+                ids = schedule_video(chat_id, video_bytes, filename, caption, None, spoiler=False, parse_mode=None)
+                log.info("personal ugoira %s -> %s", iid, ids)
+                return 0
+        pages = adapt_detail_pages(detail)
+        blobs = []
+        for it in pages:
+            data = fit_telegram(download_image(client, it))
+            blobs.append(data)
+        if not blobs:
+            raise RuntimeError(f"no images for illust {iid}")
+        if cfg.get("dry_run"):
+            log.info("personal dry %s pages=%s caption=%s", iid, len(blobs), caption[:80])
+            return 0
+        ids = schedule_album(chat_id, blobs, caption, None, spoiler=False, parse_mode=None)
+        log.info("personal album %s pages=%s msgs=%s", iid, len(blobs), ids)
     return 0

@@ -230,7 +230,7 @@ def split_parts(pages: list[dict], size: int = GALLERY_PART_SIZE) -> list[list[d
 
 # ---- telethon helpers ----
 
-async def _resolve_entity(client, chat_id: int):
+async def _resolve_entity(client, chat_id):
     try:
         return await client.get_entity(chat_id)
     except ValueError:

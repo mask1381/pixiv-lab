@@ -49,7 +49,9 @@ async def _session(chat_id: str):
     try:
         if not await client.is_user_authorized():
             raise RuntimeError("Userbot session is not authorized (TG_SESSION_STRING invalid or revoked)")
-        entity = await _resolve_entity(client, int(chat_id))
+        raw = str(chat_id).strip()
+        peer = "me" if raw.lower() in ("me", "self") else (int(raw) if raw.lstrip("-").isdigit() else raw)
+        entity = await _resolve_entity(client, peer)
         yield client, entity
     finally:
         await client.disconnect()
@@ -109,7 +111,10 @@ def list_scheduled(chat_id: str) -> list[dict]:
 
 # ---- album ----
 
-async def _album(chat_id: str, blobs: list[bytes], caption: str, when: datetime | None, spoiler: bool = False) -> list[int]:
+async def _album(
+    chat_id: str, blobs: list[bytes], caption: str, when: datetime | None, spoiler: bool = False, parse_mode="html"
+) -> list[int]:
+    pm = parse_mode or None
     async with _session(chat_id) as (client, entity):
         ids: list[int] = []
         try:
@@ -122,12 +127,12 @@ async def _album(chat_id: str, blobs: list[bytes], caption: str, when: datetime 
                 at = _utc(when + timedelta(seconds=CHUNK_GAP * i)) if when else None
                 if len(files) == 1:
                     res = await client.send_file(
-                        entity, files[0], caption=caption, parse_mode="html", schedule=at, spoiler=bool(spoiler)
+                        entity, files[0], caption=caption, parse_mode=pm, schedule=at, spoiler=bool(spoiler)
                     )
                 else:
                     caps = [caption] + [""] * (len(files) - 1)
                     res = await client.send_file(
-                        entity, files, caption=caps, parse_mode="html", schedule=at, spoiler=bool(spoiler)
+                        entity, files, caption=caps, parse_mode=pm, schedule=at, spoiler=bool(spoiler)
                     )
                 ids.extend(_ids(res))
         except Exception as exc:
@@ -141,25 +146,32 @@ async def _album(chat_id: str, blobs: list[bytes], caption: str, when: datetime 
 
 
 def schedule_album(
-    chat_id: str, blobs: list[bytes], caption: str, when: datetime | None = None, spoiler: bool = False
+    chat_id: str,
+    blobs: list[bytes],
+    caption: str,
+    when: datetime | None = None,
+    spoiler: bool = False,
+    parse_mode="html",
 ) -> list[int]:
     """Schedule photos as one or more balanced albums, same caption on the first photo of each.
 
     when=None sends immediately instead of scheduling. spoiler=True marks the media
     as a Telegram spoiler (used for NSFW covers per rules['spoiler']).
     """
-    return _retry(lambda: _album(chat_id, blobs, caption, when, spoiler), "Scheduling album")
+    return _retry(lambda: _album(chat_id, blobs, caption, when, spoiler, parse_mode), "Scheduling album")
 
 
 # ---- video (ugoira animation) ----
 
-async def _video(chat_id: str, video: bytes, filename: str, caption: str, when: datetime | None, spoiler: bool = False) -> list[int]:
+async def _video(
+    chat_id: str, video: bytes, filename: str, caption: str, when: datetime | None, spoiler: bool = False, parse_mode="html"
+) -> list[int]:
     async with _session(chat_id) as (client, entity):
         bio = io.BytesIO(video)
         bio.name = filename or "animation.mp4"
         try:
             res = await client.send_file(
-                entity, bio, caption=caption, parse_mode="html",
+                entity, bio, caption=caption, parse_mode=parse_mode or None,
                 schedule=_utc(when) if when else None, spoiler=bool(spoiler),
             )
             return _ids(res)
@@ -169,14 +181,20 @@ async def _video(chat_id: str, video: bytes, filename: str, caption: str, when: 
 
 
 def schedule_video(
-    chat_id: str, video: bytes, filename: str, caption: str, when: datetime | None = None, spoiler: bool = False
+    chat_id: str,
+    video: bytes,
+    filename: str,
+    caption: str,
+    when: datetime | None = None,
+    spoiler: bool = False,
+    parse_mode="html",
 ) -> list[int]:
     """Send an animated ugoira as a video message (scheduled or now).
 
     ``filename`` must carry a video extension (.mp4/.webm) so Telegram uploads it
     as a video, not a document.
     """
-    return _retry(lambda: _video(chat_id, video, filename, caption, when, spoiler), "Scheduling video")
+    return _retry(lambda: _video(chat_id, video, filename, caption, when, spoiler, parse_mode), "Scheduling video")
 
 
 # ---- text ----

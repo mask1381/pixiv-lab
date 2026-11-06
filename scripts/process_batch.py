@@ -139,6 +139,9 @@ def run(batch: dict, sink: AckSink) -> int:
     from pixiv_lab.state import State
 
     cfg = env_config(batch)
+    if batch.get("mode") == "personal":
+        from pixiv_lab.plan import run_personal
+        return run_personal(cfg, batch)
     state = State(batch.get("posted"), batch.get("runtime"), sink, dry=cfg["dry_run"])
     cfg["state"] = state
     try:
