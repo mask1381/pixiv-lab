@@ -22,8 +22,8 @@ import html
 import logging
 import re
 
-from pixiv_lab.caption_nsfw import nsfw_parts
-from pixiv_lab.caption_sfw import _pick_fresh, sfw_parts
+from pixiv_lab.caption_nsfw import nsfw_parts, set_nouns as set_nsfw_nouns
+from pixiv_lab.caption_sfw import _pick_fresh, sfw_parts, set_nouns as set_sfw_nouns
 from pixiv_lab.names import relation
 from pixiv_lab.rules import get_rule
 from pixiv_lab.tags import FORMAT_TAGS, get_brand_tag
@@ -36,6 +36,8 @@ CAPTION_LIMIT = 1024
 _DYNAMIC_FOOTER = ""
 _STRIP: list[str] = []
 _TPL: dict = {}
+_EXTRAS: dict = {}
+_JOINER = "\n\n"
 
 
 def set_footer(footer: str) -> None:
@@ -54,6 +56,25 @@ def set_templates(tpl: dict | None) -> None:
     _TPL = dict(tpl or {})
 
 
+def set_extras(extras: dict | None) -> None:
+    global _EXTRAS
+    _EXTRAS = dict(extras or {})
+
+
+def set_joiner(joiner: str | None) -> None:
+    global _JOINER
+    _JOINER = "\n" if joiner == "nl" else "\n\n"
+
+
+def set_caption_cfg(cfg: dict | None) -> None:
+    cfg = cfg or {}
+    set_layout(cfg.get("layout"))
+    set_strip(cfg.get("strip"))
+    set_templates(cfg.get("templates"))
+    set_extras(cfg.get("extras"))
+    set_joiner(cfg.get("joiner"))
+
+
 def apply_strip(text: str) -> str:
     out = text or ""
     for pat in _STRIP:
@@ -64,43 +85,56 @@ def apply_strip(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", out).strip()
 
 
-# ---- call-to-action labels (the "مواد خام" the bot sends) ----
-# The machine's job is to build and lay out the caption; the WORDS that invite the
-# reader to act (CTA) belong to the channel, not the machine. Each run may override
-# these via set_cta(); the defaults are generic so a machine without a law still works.
-_CTA = {
-    "zip_link": "📦 Full quality ZIP 👉 Tap to get",
-    "zip_plain": "📦 Full quality ZIP below 👇",
-    "hd_link": "🖼 Original quality 👉 Tap to get",
-    "hd_plain": "🖼 Original quality below 👇",
-    "gallery_word": "{count} pics",
-    "gallery_word_more": "{count} more pics",
-    "gallery_one": "Get the album",
-    "gallery_part": "Part {i} of {n}",
+# CTA words belong to the channel (batch). Machine only has structural fallbacks.
+_CTA_STRUCT = {
+    "zip_link": "ZIP",
+    "zip_plain": "ZIP",
+    "hd_link": "HD",
+    "hd_plain": "HD",
+    "gallery_word": "{count}",
+    "gallery_word_more": "{count}",
+    "gallery_one": "open",
+    "gallery_part": "{i}/{n}",
     "sep": " · ",
-    "ugoira": "🎞 Animation",
+    "ugoira": "",
 }
-# cover (the NSFW bundle whose channel image is another SFW post): {f}/{n} filled by code
-_CTA_COVER = {
-    "char": "See {n} like never before 🙈🔥",
-    "franchise": "More {f} girls are waiting 😳",
-    "none": "Want more like this? 😈 Check the bot",
-    "btn_char": "🔥 More {n} · Tap to open",
-    "btn_franchise": "🔥 More {f} · Tap to open",
-    "btn_none": "🔥 More waifus · Tap to open",
-}
+_COVER_HOOK_KEYS = ("char", "franchise", "none")
+_COVER_BTN_KEYS = ("btn_char", "btn_franchise", "btn_none")
+_CTA = dict(_CTA_STRUCT)
+_HOOK_LISTS: dict[str, list[str]] = {k: [] for k in _COVER_HOOK_KEYS}
+_BTN_LISTS: dict[str, list[str]] = {k: [] for k in _COVER_BTN_KEYS}
+
+
+def _lines(value) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(x).strip() for x in value if str(x).strip()]
+    text = str(value or "")
+    return [ln.strip() for ln in text.splitlines() if ln.strip()]
 
 
 def set_cta(cta: dict | None) -> None:
-    """Feed this run's CTA labels from the batch. Missing keys keep the defaults."""
-    global _CTA, _CTA_COVER
+    """Replace this run's CTA from the batch. Never keeps another channel's voice."""
+    global _CTA, _HOOK_LISTS, _BTN_LISTS
+    _CTA = dict(_CTA_STRUCT)
+    _HOOK_LISTS = {k: [] for k in _COVER_HOOK_KEYS}
+    _BTN_LISTS = {k: [] for k in _COVER_BTN_KEYS}
+    noun = None
+    noun_plural = None
     for key, value in (cta or {}).items():
-        if not isinstance(value, str):
+        if key == "noun" and isinstance(value, str) and value.strip():
+            noun = value.strip()
             continue
-        if key in _CTA:
+        if key == "noun_plural" and isinstance(value, str) and value.strip():
+            noun_plural = value.strip()
+            continue
+        if key in _CTA and isinstance(value, str):
             _CTA[key] = value
-        elif key in _CTA_COVER:
-            _CTA_COVER[key] = value
+        elif key in _COVER_HOOK_KEYS and isinstance(value, (str, list, tuple)):
+            _HOOK_LISTS[key] = _lines(value)
+        elif key in _COVER_BTN_KEYS and isinstance(value, (str, list, tuple)):
+            _BTN_LISTS[key] = _lines(value)
+    set_sfw_nouns(noun, noun_plural)
+    set_nsfw_nouns(noun, noun_plural)
 
 
 # ---- caption layout (the arrangement comes from the bot, not the machine) ----
@@ -113,7 +147,9 @@ TEASER = "teaser"
 CTA = "cta"
 TAGS = "hashtags"
 FOOTER = "footer"
-VALID_LAYOUT = {TITLE, TEASER, CTA, TAGS, FOOTER}
+PREFIX = "prefix"
+EXTRA = "extra"
+VALID_LAYOUT = {TITLE, TEASER, CTA, TAGS, FOOTER, PREFIX, EXTRA}
 DEFAULT_LAYOUT = (TITLE, TEASER, CTA, TAGS, FOOTER)
 
 _LAYOUT = DEFAULT_LAYOUT
@@ -155,56 +191,23 @@ def _block_text(b: str, parts: dict, cta: str, tags: list[str], footer: str) -> 
     if b == CTA:
         return f"<blockquote>{cta}</blockquote>" if cta else ""
     if b == TAGS:
-        return " ".join(tags) if tags else ""
+        joined = " ".join(tags) if tags else ""
+        if not joined:
+            return ""
+        tpl = _TPL.get("hashtags") or "{hashtags}"
+        if "{hashtags}" in tpl:
+            return tpl.replace("{hashtags}", joined)
+        return joined
     if b == FOOTER:
         return footer or ""
+    if b == PREFIX:
+        return str(_EXTRAS.get("prefix") or "")
+    if b == EXTRA:
+        return str(_EXTRAS.get("extra") or "")
     return ""
 
 
 TAG_RE = re.compile(r"<[^>]+>")
-
-# ---------- hook sentences for "cover" posts (chosen by the relation of the two posts) ----------
-HOOK_CHAR = [  # {n} = the shared character
-    "Another side of {n} 😏", "{n} has a secret side 🤫💕", "You haven't seen all of {n} yet 👀",
-    "More {n} is waiting for you 😳", "{n} has more to show 🔥", "This is not all of {n} 😈",
-    "Want more {n}? Check the bot 💋", "The best {n} pics are in the bot 🔥",
-    "There is a hotter {n} behind the link 😳", "{n} is waiting in the bot 💕",
-    "See {n} like never before 🙈🔥", "{n} saved the best for the bot 😏",
-    "Ready for more {n}? 😍", "{n} has a bold side too 😈", "Tap to meet the other {n} 🤭",
-]
-HOOK_FRANCHISE = [  # {f} = the shared franchise
-    "More {f} girls are waiting 😳", "The rest of {f} is in the bot 🔥", "Love {f}? There is more 😏",
-    "{f} has a bolder side 🙈", "More {f} waifus inside the bot 💋", "Not all {f} girls are this shy 😈",
-    "Want more {f}? Tap below 👇🔥", "Another {f} girl is waiting 😍", "{f} fans, this one is for you 😳",
-    "The bot has more {f} 💕", "Look who else is from {f} 👀", "{f} gets a little hotter in the bot 🔥",
-    "More {f} art, just one tap away 🤭", "Your {f} collection is not done yet 😏",
-    "Come see the other {f} girls 💖",
-]
-HOOK_NONE = [  # no name at all: safe when the two posts have nothing in common
-    "Want more like this? 😈 Check the bot", "Something hotter is waiting for you 🔥",
-    "Tap for more waifus 💋", "Your next waifu is one tap away 😳", "There is a bolder pack in the bot 🙈",
-    "More waifus are hiding in the bot 👀", "Feeling curious? Tap below 😏", "The good stuff is in the bot 🔥",
-    "Ready for something more? 😈", "Your next favorite is waiting 💕", "This was only the warm up 😳",
-    "A secret pack is waiting for you 🤫", "Open the bot for a surprise 🎁🔥", "Not shy anymore, tap below 🙈💋",
-    "Bored? Here is something spicy 🌶️😏", "Hot picks are one tap away 🔥", "More waifus, more fun 😍",
-    "Don't miss the rest of the pack 👀", "The best pics are not here 😈", "A little more? Just tap 💖",
-]
-BTN_CHAR = [
-    "🔥 More {n} · Tap to open", "💋 {n} is waiting · Tap to get", "😈 Secret {n} pics · Tap here",
-    "🙈 See more {n} · Tap to see", "😳 {n} unlocked · Tap to open", "💖 The full {n} set · Tap to get",
-    "🤫 Hidden {n} pics · Tap to open", "👀 More of {n} · Tap here",
-]
-BTN_FRANCHISE = [
-    "🔥 More {f} · Tap to open", "💋 More {f} girls · Tap to get", "😈 Secret {f} pics · Tap here",
-    "🙈 See more {f} · Tap to see", "😳 {f} unlocked · Tap to open", "💖 The {f} pack · Tap to get",
-    "🤫 Hidden {f} pics · Tap to open", "👀 More of {f} · Tap here",
-]
-BTN_NONE = [
-    "🔥 More waifus · Tap to open", "💋 The full pack · Tap to get", "😈 Secret pics · Tap here",
-    "🙈 See more · Tap to see", "😳 Unlock the pack · Tap to open", "💖 More for you · Tap to get",
-    "🤫 Hidden pics · Tap to open", "👀 Take a look · Tap here",
-]
-HOOKS = {"char": (HOOK_CHAR, BTN_CHAR), "franchise": (HOOK_FRANCHISE, BTN_FRANCHISE), "none": (HOOK_NONE, BTN_NONE)}
 
 
 def _esc(s: str) -> str:
@@ -281,7 +284,8 @@ def _assemble(parts: dict, cta: str, tags: list[str], footer: str) -> str:
         if not text:
             continue
         tight = block == TEASER and i > 0 and _LAYOUT[i - 1] == TITLE
-        out.append(("\n" if tight else "\n\n") + text if out else text)
+        gap = "\n" if tight else _JOINER
+        out.append((gap + text) if out else text)
     return "".join(out)
 
 
@@ -342,17 +346,13 @@ def build_cover_caption(
     Title + hashtags belong to the SFW post (they match the image); the hook and the button
     text follow the relation of the two posts, so they never claim something untrue."""
     rel, name = relation(cover_info, nsfw_info)
-    hooks, btns = HOOKS[rel]
     mem = runtime.setdefault("recentCaptions", {})
-    # a channel-supplied label (set_cta) wins; otherwise rotate the generic defaults
-    if _CTA_COVER.get(rel):
-        hook = _CTA_COVER[rel].format(n=name, f=name)
-    else:
-        hook = _pick_fresh([h.format(n=name, f=name) for h in hooks], f"h:{rel}", mem)
-    if _CTA_COVER.get(f"btn_{rel}"):
-        btn = _CTA_COVER[f"btn_{rel}"].format(n=name, f=name)
-    else:
-        btn = _pick_fresh([b.format(n=name, f=name) for b in btns], f"b:{rel}", mem)
+    hooks = _HOOK_LISTS.get(rel) or []
+    btns = _BTN_LISTS.get(f"btn_{rel}") or []
+    hook_pool = [h.format(n=name, f=name) for h in hooks]
+    btn_pool = [b.format(n=name, f=name) for b in btns] or ["open"]
+    hook = _pick_fresh(hook_pool, f"h:{rel}", mem) if hook_pool else ""
+    btn = _pick_fresh(btn_pool, f"b:{rel}", mem) if btn_pool else "open"
 
     links = [x for x in ([links] if isinstance(links, str) else list(links or [])) if x]
     if not links:

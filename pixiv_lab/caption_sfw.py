@@ -41,7 +41,7 @@ TITLES = {
     "Legwear": ["Long Legs Energy 🖤", "Stocking Style ✨", "Leg Day Vibes 😳", "Sheer And Pretty 🎀", "Classy Legs 🖤💕"],
     "Duo": ["Two Is Better 💕", "Double Trouble 😍😍", "Best Friends Vibe 💕✨", "Partners In Crime 😏💕", "Two Cuties 💖💖"],
     "VTuber": ["Streaming Cutie 🎥💕", "Live And Lovely ✨", "Chat Says Hi 💬😊", "Virtual Charm 🎥✨", "On Air Cutie 🎥💖"],
-    "General": ["So Cute 😍", "Beautiful Girl 💕", "Pretty Waifu ✨", "My Favorite 💖", "Just Perfect ✨😍", "Adorable 🥰"],
+    "General": ["So Cute 😍", "Beautiful Girl 💕", "My Favorite 💖", "Just Perfect ✨😍", "Adorable 🥰"],
 }
 
 TEASERS = {
@@ -72,10 +72,10 @@ TEASER_ONE_CHAR = [
     lambda c: f"Today's pick: {c} ✨💖",
 ]
 TEASER_MANY_CHARS = [
-    lambda n: f"{n} lovely waifus, one drop ✨",
+    lambda n: f"{n} looks in one drop ✨",
     lambda n: f"{n} cuties, pick your favorite 💕",
-    lambda n: f"{n} girls in one gallery 😍",
-    lambda n: f"{n} pretty waifus for your day 💖",
+    lambda n: f"{n} in one gallery 😍",
+    lambda n: f"{n} {_NOUN_PLURAL} for your day 💖",
     lambda n: f"{n} looks, all lovely ✨😊",
 ]
 TEASER_FRANCHISE = [
@@ -85,6 +85,18 @@ TEASER_FRANCHISE = [
     lambda f: f"Save this {f} art 💖",
 ]
 RARITY = [c["name"] for c in CLUSTERS]
+_NOUN = "character"
+_NOUN_PLURAL = "characters"
+
+
+def set_nouns(singular: str | None, plural: str | None) -> None:
+    global _NOUN, _NOUN_PLURAL
+    if singular:
+        _NOUN = singular
+    if plural:
+        _NOUN_PLURAL = plural
+    if not singular and not plural:
+        _NOUN, _NOUN_PLURAL = "character", "characters"
 
 
 def _norm_tag(t) -> str:

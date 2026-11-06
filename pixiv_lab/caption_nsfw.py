@@ -27,7 +27,7 @@ TAG_TITLES = {
     "oppai": ["So Pretty 😍", "Stunning Figure ✨", "Big Beautiful Vibes 💕", "Wow, Look At Her 😳", "Curvy Cutie 💕", "Can’t Look Away 👀✨", "Golden Figure ✨😍", "Full Of Charm 💖"],
     "maid": ["Cute Maid 🎀", "Sweet Maid 💕", "Maid Girl 🎀😊", "Yes Master 🎀", "Maid Cafe Vibes ☕🎀", "Adorable Maid 💕", "Fluffy Maid Dress 🎀", "My Maid 💖"],
     "uniform": ["School Girl 📚", "Cute Uniform 😊", "Student Vibe 📖💕", "Classroom Cutie 📚💕", "After School 🎒", "Uniform Days 📖", "School Days 🏫💕", "Study Buddy 📚😊"],
-    "waifu": ["So Cute 😍", "Beautiful Girl 💕", "Pretty Waifu ✨", "My Favorite 💖", "So Pretty 😊", "Wife Material 💍💕", "Adorable 🥰", "Just Perfect ✨", "Love At First Sight 💘", "Anime Perfection ✨💕"],
+    "waifu": ["So Cute 😍", "Beautiful Girl 💕", "My Favorite 💖", "So Pretty 😊", "Adorable 🥰", "Just Perfect ✨", "Love At First Sight 💘", "Anime Perfection ✨💕"],
     "bathing": ["Hot Spring Time ♨️", "Bath Time 🛁", "Steamy Soak ♨️✨", "Onsen Vibes ♨️💕", "Relax Mode 🛁", "Spa Day 🛁✨", "Warm And Cozy ♨️💖", "Calm Evening 🛁😊"],
     "milf": ["Mature Beauty 😍", "Elegant Charm 💃", "Classy And Lovely ✨", "Big Sister Energy 💕", "Gentle Beauty 💖", "Graceful Vibes 😊", "Mature Charm ✨", "Elegant Lady 💐"],
     "ass": ["Nice View 👀", "Look Behind You 😊", "Back View 💕", "Sweet Angle ✨", "Pretty From Behind 😍", "Cute Angle 💖"],
@@ -45,6 +45,18 @@ CLUSTER_KEYWORDS = {
     "oppai": ["oppai", "おっぱい", "巨乳", "爆乳", "谷間", "美乳", "乳", "boob", "breast"],
 }
 TAG_PRIORITY = list(CLUSTER_KEYWORDS)
+_NOUN = "character"
+_NOUN_PLURAL = "characters"
+
+
+def set_nouns(singular: str | None, plural: str | None) -> None:
+    global _NOUN, _NOUN_PLURAL
+    if singular:
+        _NOUN = singular
+    if plural:
+        _NOUN_PLURAL = plural
+    if not singular and not plural:
+        _NOUN, _NOUN_PLURAL = "character", "characters"
 TEASER_TEMPLATES_SINGLE = [
     lambda c: f"Guess who's here from {c}... 😍",
     lambda c: f"{c} looks so lovely today 💕",
@@ -64,11 +76,11 @@ TEASER_TEMPLATES_SINGLE = [
     lambda c: f"Today’s pick: {c} ✨😍",
 ]
 TEASER_TEMPLATES_GROUP = [
-    lambda n: f"{n} lovely waifus, one gallery ✨",
-    lambda n: f"{n} girls, pick your favorite 💕",
+    lambda n: f"{n} in one gallery ✨",
+    lambda n: f"{n} looks, pick your favorite 💕",
     lambda n: f"{n} cuties in one drop 😍",
     lambda n: f"{n} pretty shots, swipe them all 📸",
-    lambda n: f"{n} waifus for your day 💖",
+    lambda n: f"{n} {_NOUN_PLURAL} for your day 💖",
     lambda n: f"{n} reasons to smile today 😊",
     lambda n: f"{n} looks, all lovely ✨",
     lambda n: f"{n} girls, one sweet gallery 🌸",

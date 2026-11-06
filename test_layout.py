@@ -84,7 +84,7 @@ check("invalid layout ignored", C._LAYOUT == ("title", "cta", "footer"), C._LAYO
 # 6) cta: unknown keys and non-string values are ignored, valid ones applied
 C.set_cta({"bogus": "x", "btn_none": 3, "sep": " | ", "zip_link": "new"})
 check("unknown/non-string cta ignored, valid applied",
-      C._CTA["sep"] == " | " and C._CTA["zip_link"] == "new" and C._CTA["gallery_one"] == "Get the album",
+      C._CTA["sep"] == " | " and C._CTA["zip_link"] == "new" and C._CTA["gallery_one"] == "open",
       {k: C._CTA[k] for k in ("sep", "zip_link", "gallery_one")})
 
 # 7) set_brand_tag normalizes and stores (used by classify_tags, verified here)
