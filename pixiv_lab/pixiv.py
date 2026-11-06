@@ -186,8 +186,11 @@ def adapt_detail_pages(illust: dict) -> list[dict]:
 
     if illust.get("meta_pages"):
         pages = illust["meta_pages"]
+        single_hq = None
     else:
         pages = [{"image_urls": illust.get("image_urls") or {}}]
+        # تک‌صفحه‌ای‌ها original را در meta_single_page دارند، نه در image_urls
+        single_hq = (illust.get("meta_single_page") or {}).get("original_image_url")
 
     items = []
     for idx, page in enumerate(pages):
@@ -197,7 +200,7 @@ def adapt_detail_pages(illust: dict) -> list[dict]:
                 "id": f"{illust['id']}_p{idx}",
                 "illust_id": illust["id"],
                 "title": illust.get("title"),
-                "image_url_hq": urls.get("original") or illust.get("meta_single_page", {}).get("original_image_url") or urls.get("large"),
+                "image_url_hq": single_hq or urls.get("original") or urls.get("large"),
                 "image_url_std": urls.get("medium"),
                 "character": "unknown",
                 "generalTags": tags,
