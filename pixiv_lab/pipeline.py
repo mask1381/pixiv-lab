@@ -70,11 +70,25 @@ def _mark_skipped(posted: dict, runtime: dict, item_id: str, reason: str) -> Non
     log.warning("Marked %s as skipped: %s", item_id, reason)
 
 
+def _failure_count(raw) -> int:
+    """Accept legacy dict shape {n, reason, last} or a plain int."""
+    if isinstance(raw, dict):
+        try:
+            return int(raw.get("n") or 0)
+        except (TypeError, ValueError):
+            return 0
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _record_failure(posted: dict, runtime: dict, item_id: str) -> None:
     failures = runtime.setdefault("failures", {})
-    failures[item_id] = int(failures.get(item_id, 0)) + 1
-    log.warning("Failure %s/%s for %s", failures[item_id], MAX_FAILURES, item_id)
-    if failures[item_id] >= MAX_FAILURES:
+    n = _failure_count(failures.get(item_id)) + 1
+    failures[item_id] = n
+    log.warning("Failure %s/%s for %s", n, MAX_FAILURES, item_id)
+    if n >= MAX_FAILURES:
         _mark_skipped(posted, runtime, item_id, f"failed {MAX_FAILURES} times")
 
 

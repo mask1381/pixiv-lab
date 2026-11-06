@@ -55,7 +55,8 @@ async def _bulk_all(batches: list[list[Path]], force_document: bool = False) -> 
     )
     await client.connect()
     try:
-        entity = await _resolve_entity(client, int(os.environ["STORAGE_CHAT_ID"].strip()))
+        from pixiv_lab.userbot_zip import storage_chat_id
+        entity = await _resolve_entity(client, int(storage_chat_id()))
         await _cmd(client, entity, "/bulk_start", False)   # wait until the bot turned bulk ON
         ids: list[int] = []
         try:

@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import httpx
 
 from pixiv_lab.images import IMG_EXT, PXIMG_HEADERS
-from pixiv_lab.rules import select_pages
+from pixiv_lab.rules import get_rule, select_pages
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ DOWNLOAD_ATTEMPTS = 2
 # The machine never hardcodes a channel's bot or label, so it can serve any channel.
 _STORAGE_BOT_USERNAME = ""
 _STORAGE_LINK_LABEL = ""
+_STORAGE_CHAT_ID = ""
 BOT_REPLY_TIMEOUT = 45.0   # the bot usually answers in ~5s
 BOT_POLL_INTERVAL = 2.0
 STORAGE_ATTEMPTS = 2
@@ -47,6 +48,16 @@ def set_storage(bot_username: str, link_label: str) -> None:
     _STORAGE_LINK_LABEL = (link_label or "").strip()
 
 
+def set_storage_chat(chat_id: str) -> None:
+    """Prefer batch.storage_chat_id; env STORAGE_CHAT_ID is fallback only."""
+    global _STORAGE_CHAT_ID
+    _STORAGE_CHAT_ID = str(chat_id or "").strip()
+
+
+def storage_chat_id() -> str:
+    return _STORAGE_CHAT_ID or os.environ.get("STORAGE_CHAT_ID", "").strip()
+
+
 def userbot_configured() -> bool:
     api_id = os.environ.get("TG_API_ID", "").strip()
     api_hash = os.environ.get("TG_API_HASH", "").strip()
@@ -55,7 +66,7 @@ def userbot_configured() -> bool:
 
 
 def storage_configured() -> bool:
-    return os.environ.get("STORAGE_CHAT_ID", "").strip().lstrip("-").isdigit()
+    return storage_chat_id().lstrip("-").isdigit()
 
 
 # ---- zip naming ----
@@ -407,7 +418,7 @@ async def _upload_all(batches: list[list[Path]], force_document: bool = False) -
     try:
         if not await client.is_user_authorized():
             raise RuntimeError("Userbot session is not authorized (TG_SESSION_STRING invalid or revoked)")
-        entity = await _resolve_entity(client, int(os.environ["STORAGE_CHAT_ID"].strip()))
+        entity = await _resolve_entity(client, int(storage_chat_id()))
         try:
             for index, paths in enumerate(batches, start=1):
                 uploads.append(

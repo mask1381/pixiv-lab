@@ -32,7 +32,7 @@ def env_config(batch: dict) -> dict:
     from pixiv_lab.caption import set_cta, set_footer, set_layout
     from pixiv_lab.pipeline import set_dry_bot_link
     from pixiv_lab.tags import set_brand_tag
-    from pixiv_lab.userbot_zip import set_storage
+    from pixiv_lab.userbot_zip import set_storage, set_storage_chat
 
     refresh = (os.getenv("PIXIV_REFRESH_TOKEN") or "").strip()
     bot = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
@@ -51,6 +51,7 @@ def env_config(batch: dict) -> dict:
         str(batch.get("storage_bot_username") or os.getenv("STORAGE_BOT_USERNAME", "") or "").strip(),
         str(batch.get("storage_bot_link_label") or os.getenv("STORAGE_BOT_LINK_LABEL", "") or "").strip(),
     )
+    set_storage_chat(str(batch.get("storage_chat_id") or "").strip())
 
     missing = [n for n, v in [("PIXIV_REFRESH_TOKEN", refresh), ("target_chat_id (batch)", chat)] if not v]
     if missing:
